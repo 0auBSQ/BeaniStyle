@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "戻る",
+        "COMMON_CONTINUE": "続ける",
+        "COMMON_OK": "OK",
+        "COMMON_PLAY": "プレイ",
+        "COMMON_SELECT": "決定",
+        "DAN_EXAMS": "試験",
+        "DAN_SONGS": "曲",
+        "SS_DIFF_0": "かんたん",
+        "SS_DIFF_1": "ふつう",
+        "SS_DIFF_2": "むずかしい",
+        "SS_DIFF_3": "おに",
+        "SS_DIFF_4": "裏おに",
+        "SS_DIFF_5": "タワー",
+        "SS_DIFF_6": "段位"
+    }
+}

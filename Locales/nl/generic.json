@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "Terug",
+        "COMMON_CONTINUE": "Doorgaan",
+        "COMMON_OK": "OK",
+        "COMMON_PLAY": "Spelen",
+        "COMMON_SELECT": "Kiezen",
+        "DAN_EXAMS": "Examens",
+        "DAN_SONGS": "Nummers",
+        "SS_DIFF_0": "Makkelijk",
+        "SS_DIFF_1": "Normaal",
+        "SS_DIFF_2": "Moeilijk",
+        "SS_DIFF_3": "Extreem",
+        "SS_DIFF_4": "Extra extreem",
+        "SS_DIFF_5": "Toren",
+        "SS_DIFF_6": "Dan"
+    }
+}

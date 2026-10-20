@@ -4,9 +4,12 @@
 -- and training_song_select.
 --
 -- activate(config) parameters (all optional, nil = default):
---   allowPlayerCount  (bool)  true by default — allow L key to cycle player count
+--   allowPlayerCount  (bool)  true by default — allow the player count shortcut to cycle it
 --   lockedPlayerCount (int)   nil by default  — forces CONFIG.PlayerCount to this value
 --   mountAISlotToP2   (bool)  false by default — mounts the AI virtual slot onto spot 2
+--   songOnly          (bool)  false by default — online lobby: pick a song only, no difficulty prompt
+--   backgroundMode    (str)   nil = the song select's own background; "shared" = the host stage's
+--                             SHARED "background" texture, scrolled
 --
 -- update() return values:
 --   "play"   — a song was successfully mounted, parent stage should Exit("play")
@@ -19,7 +22,7 @@ local Diff    = require("diffselect")
 local Replay  = require("replaylist")
 local DrawSS  = require("draw_songselect")
 local CFG     = require("sscore_config")
-local NavInput = require("NavInput")
+local NavInput = require("Input.NavInput")
 
 -- Song-preview volume fades (skinner-tunable in Config/layout.json).
 local PREVIEW_FADE_IN_MS  = CFG.num("preview.fade_in_ms", 280)
@@ -27,6 +30,10 @@ local PREVIEW_FADE_OUT_MS = CFG.num("preview.fade_out_ms", 140)
 local Search  = require("search")
 local Unlocks = require("unlockables")
 local Favs    = require("favorites")
+local SC      = require("shortcuts")     -- keyboard shortcuts (theme "key" settings) + the help panel
+local Featured = require("featured")     -- curated boxes at the top of the root list
+local MusicDuck = require("Audio.MusicDuck")
+local previewDuck = MusicDuck.new()      -- dims the preview while the unlock reward modal plays
 
 -- ── Shared state (G) ─────────────────────────────────────────────────────────
 -- All modules receive a reference to this table via their init() call.
@@ -58,7 +65,8 @@ local G = {
     ctx = {},
 
     -- Scroll / animation state
-    currentBackground   = 0,
+    nowMs               = 0,
+    backgroundMode      = nil,
     backgroundScrollX   = 0,
     Bg0ScrollX = 0,
     Bg1ScrollX = 0,
@@ -85,6 +93,7 @@ local G = {
 
     -- Preview state
     puchiSineY          = 0,
+    puchiIdxFrame       = 0,
     selectedSongNode    = nil,
     previewDemoStartRaw = 0,
     previewDemoStart    = 0,
@@ -112,13 +121,6 @@ local G = {
 
     -- Per-player input bindings
     NavInput = NavInput,
-    inputSets = {
-        { auto = "ToggleAutoP1" },
-        { auto = "ToggleAutoP2" },
-        { auto = nil },
-        { auto = nil },
-        { auto = nil },
-    },
 }
 
 -- ── Shared utility functions (stored in G so every module can call them) ──────
@@ -160,14 +162,17 @@ G.drawPlayerChara = function(player, x, y, scaleX, scaleY, opacity, flipX)
     end
 end
 
-G.drawPlayerPuchi = function(player, x, y, scaleX, scaleY, opacity)
+local PUCHI_N_FRAMES = 2
+G.drawPlayerPuchi = function(player, x, y, scaleX, scaleY, opacity, flipX, idxFrame)
     local puchi = GetSaveFile(player):GetPuchichara()
     if puchi == nil or puchi.tx == nil or not puchi.tx.Loaded then return end
-    local frameW = math.floor(puchi.tx.Width / 2)
+    local frameW = math.floor(puchi.tx.Width / PUCHI_N_FRAMES)
     local frameH = puchi.tx.Height
-    puchi.tx:SetScale(scaleX, scaleY)
+    local esx = (flipX or false) and -scaleX or scaleX
+    idxFrame = idxFrame or 0
+    puchi.tx:SetScale(esx, scaleY)
     puchi.tx:SetOpacity(opacity)
-    puchi.tx:DrawRectAtAnchor(x, y, 0, 0, frameW, frameH, "bottom")
+    puchi.tx:DrawRectAtAnchor(x, y, idxFrame * frameW, 0, frameW, frameH, "bottom")
     puchi.tx:SetOpacity(1); puchi.tx:SetScale(1, 1)
 end
 
@@ -187,6 +192,31 @@ DrawSS.init(G)
 Search.init(G)
 Unlocks.init(G)
 Favs.init(G)
+SC.init(G)
+G.shortcuts = SC
+G.songListHit = DrawSS.hitTest
+-- the skin's bool theme settings, read once per visit (a missing definition counts as on)
+local themeFlags = {}
+G.reloadThemeFlags = function()
+    themeFlags = {}
+    for _, id in ipairs({ "songselect_mouse", "songselect_replays" }) do
+        local ok, v = pcall(function() return THEME:GetThemeSetting(id) end)
+        themeFlags[id] = not (ok and (v == "0" or v == "false"))
+    end
+end
+G.themeFlag = function(id)
+    local v = themeFlags[id]
+    if v == nil then return true end
+    return v
+end
+-- the mouse drives the song list and the difficulty bars only when one person plays (the AI battle's
+-- second slot is the bot, so that mode counts as one) and the theme setting allows it; the best plays
+-- list keeps its own mouse handling whatever the setting says
+G.mouseAllowed = function()
+    if not G.themeFlag("songselect_mouse") then return false end
+    return CONFIG.PlayerCount == 1 or G.activeConfig.mountAISlotToP2 == true
+end
+Featured.init(G)
 
 -- Expose applySort through G so other modules (e.g. search.lua) can call it
 -- without needing a direct reference to Sort.
@@ -303,7 +333,7 @@ function onStart()
     G.favs = Favs
 end
 
-function activate(allowPlayerCount, lockedPlayerCount, mountAISlotToP2, songOnly)
+function activate(allowPlayerCount, lockedPlayerCount, mountAISlotToP2, songOnly, backgroundMode)
     G.activeConfig = {
         allowPlayerCount  = allowPlayerCount,
         lockedPlayerCount = lockedPlayerCount,
@@ -331,15 +361,26 @@ function activate(allowPlayerCount, lockedPlayerCount, mountAISlotToP2, songOnly
     G.sounds.Cancel = SHARED:GetSharedSound("Cancel")
     G.sounds.Decide = SHARED:GetSharedSound("Decide")
     G.sounds.SongDecide = SHARED:GetSharedSound("SongDecide")
+    G.sounds.Error = SHARED:GetSharedSound("Error")
 
     Diff.resetToSongSelect()
     Unlocks.invalidateCondCache()
 
     -- (search state is owned by LuaSongList; reloading the song list resets it)
 
-    G.currentBackground = 0
+    G.backgroundMode = backgroundMode
+    G.folderAnim = nil   -- a folder animation cut short by leaving never locks the next visit
+    INPUT:GetScrollDelta(); INPUT:GetMouseDelta()   -- wheel and mouse movement from before this visit
     SHARED:SetSharedTexture("bg1", "Textures/bg1.png")
     SHARED:SetSharedTexture("header_overlay", "Textures/header_overlay.png")
+    SC.reload()   -- the bindings can change in the settings between visits
+    G.reloadThemeFlags()
+
+    -- the online lobby's preview plays on at full volume while its song stays selected (navigation hands it over)
+    if G.activeConfig.songOnly then
+        local ps = SHARED:GetSharedSound("presound")
+        if ps ~= nil and ps.Loaded and ps.IsPlaying then G.previewFadeVol, G.previewFadeTarget = 100, 100 end
+    end
 
     if G.songList ~= nil then
         Sort.applySort()
@@ -352,6 +393,8 @@ function activate(allowPlayerCount, lockedPlayerCount, mountAISlotToP2, songOnly
 
     G.startCounter("bg0", 2160, 0, 1/30, "loop", function(val) G.Bg0ScrollX = val end)
     G.startCounter("bg1", 2160, 0, 1/60, "loop", function(val) G.Bg1ScrollX = val end)
+    -- "shared" background mode: the host stage's texture, scrolled
+    G.startCounter("background", 1920, 0, 1/48, "loop", function(val) G.backgroundScrollX = val end)
     G.startCounter("arrows_animation", 10, 0, 1/10, "bounce", function(val) G.arrowsDistance = val end)
 
     -- G.startCounter("extreme_fade", 2000, 0, 1/400, "loop", function(val)
@@ -369,8 +412,13 @@ function activate(allowPlayerCount, lockedPlayerCount, mountAISlotToP2, songOnly
     G.startCounter("puchi_sine", 0, 360, 1/120, "loop", function(val)
         G.puchiSineY = math.sin(val * math.pi / 180) * PUCHI_FLOAT_AMP
     end)
+    G.startCounter("puchi_frame", 0, 1, 4.8, "loop", function(val)
+        G.puchiIdxFrame = math.floor(val * PUCHI_N_FRAMES)
+    end)
 
+    -- the players' box (characters, portraits) is not shown in the online lobby's song select
     G.portraits = {}
+    if G.activeConfig.songOnly then return end
     for p = 0, 4 do
         local chara = GetSaveFile(p):GetCharacter()
         if chara ~= nil and chara.IsValid then
@@ -386,19 +434,27 @@ function deactivate()
         VIRTUALSLOTS:MountSlot(2, "2P")
     end
     G.lastSignal = nil
+    SC.dispose()
 
     for k in pairs(G.ctx) do G.ctx[k] = COUNTER:EmptyCounter() end
 
-    SHARED:GetSharedSound("presound"):Stop()
+    -- the online lobby takes its preview back as it is; anywhere else it stops here
+    if not G.activeConfig.songOnly then
+        SHARED:GetSharedSound("presound"):Stop()
+        SHARED:SetSharedString("presound_path", "")
+    end
+    previewDuck:reset()
     G.previewFadeVol    = 0
     G.previewFadeTarget = 0
     G.previewLoaded     = false
     G.previewWasPlaying = false
 
-    for p = 0, 4 do
-        local chara = GetSaveFile(p):GetCharacter()
-        if chara ~= nil and chara.IsValid then chara:DisposeAnimation(CHARACTER.ANIM_MENU_NORMAL) end
-        if G.portraits[p] ~= nil then G.portraits[p]:Dispose(); G.portraits[p] = nil end
+    if not G.activeConfig.songOnly then
+        for p = 0, 4 do
+            local chara = GetSaveFile(p):GetCharacter()
+            if chara ~= nil and chara.IsValid then chara:DisposeAnimation(CHARACTER.ANIM_MENU_NORMAL) end
+            if G.portraits[p] ~= nil then G.portraits[p]:Dispose(); G.portraits[p] = nil end
+        end
     end
     G.portraits = {}
 end
@@ -412,6 +468,7 @@ function afterSongEnum()
     lsls:SetMandatoryDifficultyList({0, 1, 2, 3, 4})   -- Easy..Edit
     lsls.MandatoryDifficultyMatchAll = false           -- OR: keep charts with at least one playable difficulty
     G.songList       = RequestSongList(lsls)
+    Featured.insertAll()   -- the curated boxes go in before the first folder; the cursor stays on that folder
     G.originalOrders = {}
     Sort.applySort()
     Nav.refreshPage()
@@ -453,10 +510,16 @@ function draw(mode)
     end
 
     if mode ~= "no_bg" then
-        G.bgtx["bg0"]:Draw(-G.Bg0ScrollX, 0)
-        G.bgtx["bg0"]:Draw(-G.Bg0ScrollX + 2160, 0)
-        SHARED:GetSharedTexture("bg1"):Draw(-G.Bg1ScrollX, 0)
-        SHARED:GetSharedTexture("bg1"):Draw(-G.Bg1ScrollX + 2160, 0)
+        if G.backgroundMode == "shared" then
+            local bg = SHARED:GetSharedTexture("background")
+            bg:Draw(-G.backgroundScrollX, 0)
+            bg:Draw(-G.backgroundScrollX + 1920, 0)
+        else
+            G.bgtx["bg0"]:Draw(-G.Bg0ScrollX, 0)
+            G.bgtx["bg0"]:Draw(-G.Bg0ScrollX + 2160, 0)
+            SHARED:GetSharedTexture("bg1"):Draw(-G.Bg1ScrollX, 0)
+            SHARED:GetSharedTexture("bg1"):Draw(-G.Bg1ScrollX + 2160, 0)
+        end
     end
     if mode == "bg_only" then return end
 
@@ -473,11 +536,23 @@ function draw(mode)
     for _, at in pairs(G.act_inner) do
         if at.IsActive then at:Draw() end
     end
+    SC.draw()
 end
 
 -- ── Update ────────────────────────────────────────────────────────────────────
 
+local updateScreen
+
+-- the wheel delta piles up until read: what the screen did not read this frame is dropped, so a scroll on
+-- the difficulty screen or in a dialog never moves the song list later
 function update(ts)
+    local r = updateScreen(ts)
+    INPUT:GetScrollDelta()
+    return r
+end
+
+updateScreen = function(ts)
+    G.nowMs = ts or G.nowMs                        -- the frame clock for draw-side animations
     for _, c in pairs(G.ctx) do c:Tick() end
 
     -- While songs are loading or unavailable, only allow Cancel/Escape to exit.
@@ -490,12 +565,16 @@ function update(ts)
     end
 
     -- Ease the preview volume toward its target: a prompt fade-out when scrolling away, a short fade-in
-    -- when a new preview starts (navigation.lua sets the target + resets the volume on start).
+    -- when a new preview starts (navigation.lua sets the target + resets the volume on start). The
+    -- reward modal (opened by confirm_dialog) dims it on top, so the modal's own sounds are heard.
     do
         local psnd = SHARED:GetSharedSound("presound")
-        if psnd.Loaded and G.previewFadeVol ~= G.previewFadeTarget then
-            local dtms = 1000 / 60
-            if ts ~= nil and G.previewPrevTs ~= nil then dtms = math.max(0, math.min(100, ts - G.previewPrevTs)) end
+        local dtms = 1000 / 60
+        if ts ~= nil and G.previewPrevTs ~= nil then dtms = math.max(0, math.min(100, ts - G.previewPrevTs)) end
+        local modal = ROACTIVITY:GetROActivity("modal")
+        local duckBefore = previewDuck.factor
+        local duck = previewDuck:update(dtms / 1000, modal ~= nil and modal.IsActive)
+        if psnd.Loaded and (G.previewFadeVol ~= G.previewFadeTarget or duck ~= duckBefore) then
             local dur  = (G.previewFadeTarget > G.previewFadeVol) and PREVIEW_FADE_IN_MS or PREVIEW_FADE_OUT_MS
             local step = (dur > 0) and (100 * dtms / dur) or 100
             if G.previewFadeVol < G.previewFadeTarget then
@@ -503,7 +582,7 @@ function update(ts)
             else
                 G.previewFadeVol = math.max(G.previewFadeTarget, G.previewFadeVol - step)
             end
-            psnd:SetVolume(math.floor(G.previewFadeVol + 0.5))
+            psnd:SetVolume(math.floor(G.previewFadeVol * duck + 0.5))
         end
     end
     if ts ~= nil then G.previewPrevTs = ts end
@@ -538,7 +617,7 @@ function update(ts)
 
     -- Reload characters when customize_dialog closes
     local isCustomizeActive = G.act_inner["customize_dialog"] ~= nil and G.act_inner["customize_dialog"].IsActive
-    if G.wasCustomizeActive and not isCustomizeActive then
+    if G.wasCustomizeActive and not isCustomizeActive and not G.activeConfig.songOnly then
         for p = 0, 4 do
             local chara = GetSaveFile(p):GetCharacter()
             if chara ~= nil and chara.IsValid then
@@ -575,6 +654,9 @@ function update(ts)
     Unlocks.tick()
 
     if hasActiveInnerModal then return nil end
+
+    -- the shortcuts panel takes the input while it is up
+    if SC.isOpen() then SC.update(ts); return nil end
 
     if G.activeScreen == "songselect" then
         return Nav.handleSongSelectInput(Sort, Diff)

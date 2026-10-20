@@ -1,17 +1,13 @@
-﻿{
-    // Skin locale file — Spanish: Tower
-    // Format: { "Entries": { "KEY": "value", ... } }. Every file in Locales/es/ is read; a key
-    // missing here falls back to the skin's default locale.
+{
     "Entries": {
-        // Tower gameplay: the floor and lives planks (tower_hud ROActivity)
-        "TOWER_HUD_REACHED": "Piso alcanzado",
+        "SS_LOCKED": "Canción bloqueada",
+        "TOWER_COUNT": "{n} torres",
         "TOWER_HUD_FLOOR_PREFIX": "Piso ",
         "TOWER_HUD_FLOOR_SUFFIX": "",
         "TOWER_HUD_LIVES": "Vidas",
-
-        // Tower select
-        "TOWERSELECT_CONFIRM": "¿Desafiar la torre?",
-        "TOWERSELECT_RANDOM": "Torre aleatoria",
-        "TOWERSELECT_RETURN": "Regresar"
+        "TOWER_HUD_REACHED": "Piso alcanzado",
+        "TOWER_INFO": "{floors} pisos    {lives} vidas    nivel {level}",
+        "TOWER_NONE": "No se encontraron torres.",
+        "TOWER_TITLE": "Torres"
     }
 }

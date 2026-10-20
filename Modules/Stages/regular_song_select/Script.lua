@@ -27,7 +27,6 @@ function update()
 	local signal = getSignal(act:Update())
 	if signal == "play"   then return Exit("play", nil) end
 	if signal == "cancel" then return Exit("title", nil, "pill_clouds_back") end
-	if signal == "thanks" then return Exit("stage", "event_thanks") end   -- Event Mode: the last play is done
 end
 
 function draw()

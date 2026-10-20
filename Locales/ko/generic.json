@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "뒤로",
+        "COMMON_CONTINUE": "계속",
+        "COMMON_OK": "확인",
+        "COMMON_PLAY": "플레이",
+        "COMMON_SELECT": "선택",
+        "DAN_EXAMS": "시험",
+        "DAN_SONGS": "곡",
+        "SS_DIFF_0": "쉬움",
+        "SS_DIFF_1": "보통",
+        "SS_DIFF_2": "어려움",
+        "SS_DIFF_3": "귀신",
+        "SS_DIFF_4": "뒷귀신",
+        "SS_DIFF_5": "타워",
+        "SS_DIFF_6": "단위"
+    }
+}

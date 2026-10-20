@@ -1,17 +1,13 @@
 {
-    // Skin locale file — Korean: Tower
-    // Format: { "Entries": { "KEY": "value", ... } }. Every file in Locales/ko/ is read; a key
-    // missing here falls back to the skin's default locale.
     "Entries": {
-        // Tower gameplay: the floor and lives planks (tower_hud ROActivity)
-        "TOWER_HUD_REACHED": "도달한 층",
+        "SS_LOCKED": "잠긴 곡",
+        "TOWER_COUNT": "{n}개 타워",
         "TOWER_HUD_FLOOR_PREFIX": "",
         "TOWER_HUD_FLOOR_SUFFIX": "층",
         "TOWER_HUD_LIVES": "라이프",
-
-        // Tower select
-        "TOWERSELECT_CONFIRM": "타워에 도전하시겠습니까?",
-        "TOWERSELECT_RANDOM": "랜덤 타워",
-        "TOWERSELECT_RETURN": "뒤로가기"
+        "TOWER_HUD_REACHED": "도달한 층",
+        "TOWER_INFO": "{floors}층    목숨 {lives}    레벨 {level}",
+        "TOWER_NONE": "타워를 찾을 수 없습니다.",
+        "TOWER_TITLE": "타워"
     }
 }

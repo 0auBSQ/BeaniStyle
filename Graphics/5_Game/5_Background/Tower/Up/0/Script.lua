@@ -19,8 +19,8 @@ end
 
 function onStart()
     tx["BG.png"] = TEXTURE:CreateTextureSync("BG.png")
-    tx["Scroll_1.png"] = TEXTURE:CreateTextureSync("Scroll/Scroll_1.png")
-    tx["Scroll_2.png"] = TEXTURE:CreateTextureSync("Scroll/Scroll_2.png")
+    tx["Scroll_1.png"] = TEXTURE:CreateTextureSync("Scroll_1.png")
+    tx["Scroll_2.png"] = TEXTURE:CreateTextureSync("Scroll_2.png")
 
     -- random values to create initial depth
     bg1_ScrollX = 500

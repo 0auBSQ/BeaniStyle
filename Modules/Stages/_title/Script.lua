@@ -2,11 +2,10 @@
 -- _title/Script.lua  —  Main menu for OpenTaiko
 
 local NavInput = require("NavInput")
-local EM       = require("EventMode")
 local PS       = require("player_select")
 local PopUI    = require("PopUI")
-local PagodaAvatar = require("PagodaAvatar")
 local SavePicker = require("SavePicker")
+local CustomStages = require("Stages.CustomStages")
 
 -- ── Resources ─────────────────────────────────────────────────────────────────
 
@@ -45,9 +44,6 @@ local function isVaultUnlocked()
 end
 
 -- ── Menu definitions ──────────────────────────────────────────────────────────
-
--- Event Mode: the title offers the three modes an event runs on and nothing else
-local EVENT_STAGES = { regular_song_select = true, ai_battle_song_select = true, dan_select = true }
 
 local function buildMenus()
     local m = {
@@ -109,18 +105,24 @@ local function buildMenus()
             title = tr("TITLE_VAULT", "Secret Vault"),
             desc  = tr("TITLE_VAULT_DESC", "A place full of mysteries where keys seems to have a particular value..."),
             c     = col(80, 80, 90),
-            via   = "stage", stage = "secret_vault_rw", trans = "vault_water", fastTrans = "vault_water_back",
+            via   = "stage", stage = "secret_vault", trans = "vault_water", fastTrans = "vault_water_back",
         }
     else
         m[#m + 1] = {
             title  = "???",
             desc   = tr("TITLE_VAULT_LOCKED_DESC", "Can you hear me...?"),
             c      = col(80, 80, 90),
-            via    = "stage", stage = "secret_vault_rw", trans = "vault_wood",
+            via    = "stage", stage = "secret_vault", trans = "vault_wood",
             static = true,
         }
     end
 
+    m[#m + 1] = {
+        title = tr("TITLE_CUSTOM_STAGES", "Custom Stages"),
+        desc  = tr("TITLE_CUSTOM_STAGES_DESC", "Play stages made by the community, or learn how to make your own!"),
+        c     = col(210, 90, 160),
+        via   = "custom",
+    }
     m[#m + 1] = {
         title = tr("TITLE_SETTINGS", "Settings"),
         desc  = tr("TITLE_SETTINGS_DESC", "Adjust your settings to fit with your play experience!"),
@@ -140,12 +142,6 @@ local function buildMenus()
         c     = col(72, 36, 112),
         via   = "stage", stage = "onlinelobby",
     }
-
-    if EM.on() then
-        local kept = {}
-        for _, e in ipairs(m) do if e.via == "stage" and EVENT_STAGES[e.stage] then kept[#kept + 1] = e end end
-        return kept
-    end
 
     return m
 end
@@ -379,9 +375,6 @@ function onStart()
 end
 
 function activate()
-    -- a pagoda run an earlier session crashed in: player 1's own pair is back before anything can change it
-    PagodaAvatar.recover()
-    if not EM.on() then EM.resetSession() end   -- no event running: the plays counter waits at zero
     menus     = buildMenus()
     textCache = {}
     curIdx    = math.max(1, math.min(curIdx, #menus))  -- keep last position, clamp to new size
@@ -398,6 +391,7 @@ end
 function deactivate()
     closeNotice()
     SavePicker.close()
+    CustomStages.close()
     if sounds.BGM ~= nil then sounds.BGM:Stop() end
     PS.clearSounds()
 end
@@ -440,6 +434,11 @@ function draw()
     if SavePicker.isOpen() then
         drawBgTile(0.6)
         SavePicker.draw()
+    end
+
+    if CustomStages.isOpen() then
+        drawBgTile(0.6)
+        CustomStages.draw()
     end
 end
 
@@ -484,6 +483,19 @@ function update(ts)
         elseif r ~= nil then
             SavePicker.pass(r)
             return doExit()
+        end
+        return nil
+    end
+
+    -- ── Custom stages ─────────────────────────────────────────────────────────
+    -- the stages of the "CStage" namespace; the one picked comes back here (custom_stage_return)
+    if CustomStages.isOpen() then
+        local r = CustomStages.update(ts)
+        if r == "cancel" then
+            sounds.Cancel:Play()
+            holdDir = 0
+        elseif r ~= nil then
+            return CustomStages.enter(r.name, "_title")
         end
         return nil
     end
@@ -561,6 +573,11 @@ function update(ts)
             return nil
         end
         sounds.Decide:Play()
+        if m.via == "custom" then
+            CustomStages.open{ ui = PopUI, title = m.title, navPlayer = "" }
+            holdDir = 0
+            return nil
+        end
         if m.pickSave then
             local slot = openSavePicker(m.pickSave)
             if slot ~= nil then

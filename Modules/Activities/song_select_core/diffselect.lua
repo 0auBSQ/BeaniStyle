@@ -21,8 +21,8 @@ local DIFFSELECT_CHARA_GAP_X_12P = CFG.num("difficulty_select.chara_12p.gap_x", 
 local DIFFSELECT_CHARA_SCALE_12P = CFG.num("difficulty_select.chara_12p.scale", 0.8)
 
 -- Option bars
-local DIFFSELECT_SMALL_BAR_X = CFG.num("difficulty_select.option_bars.origin_x", {1278, 1492, 1706})
-local DIFFSELECT_SMALL_BAR_Y = CFG.num("difficulty_select.option_bars.origin_y", {234, 234, 234})
+local DIFFSELECT_SMALL_BAR_X = CFG.numList("difficulty_select.option_bars.origin_x", {1278, 1492, 1706})
+local DIFFSELECT_SMALL_BAR_Y = CFG.numList("difficulty_select.option_bars.origin_y", {234, 234, 234})
 local DIFFSELECT_SMALL_BAR_SELECT_RECT_Y_OFFSET = CFG.num("difficulty_select.option_bars.rect_y_offset", 116)
 local DIFFSELECT_SMALL_BAR_SELECT_X_OFFSET = CFG.num("difficulty_select.option_bars.select_x_offset", 0)
 local DIFFSELECT_SMALL_BAR_SELECT_Y_OFFSET = CFG.num("difficulty_select.option_bars.select_y_offset", 0)
@@ -98,8 +98,37 @@ end
 
 -- ── Private draw helpers ──────────────────────────────────────────────────────
 
+-- ── Mouse ─────────────────────────────────────────────────────────────────────
+-- the screen rectangle of bar `index` (options 0..2, difficulties 3+) as drawn below, or nil
+local function barRect(index)
+    if index < 3 then
+        local tex = G.difftx["smallbar" .. index]
+        if tex == nil then return nil end
+        local x, y = DIFFSELECT_SMALL_BAR_X[index + 1], DIFFSELECT_SMALL_BAR_Y[index + 1]
+        return x, y - tex.Height, tex.Width, tex.Height                       -- drawn "bottomleft"
+    end
+    local barinfo = G.diffBars[index - 2]
+    if barinfo == nil then return nil end
+    local tex = G.difftx["difficultybar" .. (barinfo.vault and 5 or barinfo.difficulty)]
+    if tex == nil then return nil end
+    local x = DIFFSELECT_BIG_BAR_ORIG_X
+    local y = DIFFSELECT_BIG_BAR_ORIG_Y + (index - 3) * DIFFSELECT_BIG_BAR_GAP_Y
+    return x - tex.Width, y - tex.Height, tex.Width, tex.Height               -- drawn "bottomright"
+end
+
+-- the diffIndex under the mouse, or nil; the later-drawn bars win overlaps
+local function mouseTarget()
+    if not INPUT:IsMouseInside() then return nil end
+    local mx, my = INPUT:GetMouseXY()
+    for index = 2 + #G.diffBars, 0, -1 do
+        local x, y, w, h = barRect(index)
+        if x ~= nil and mx >= x and mx <= x + w and my >= y and my <= y + h then return index end
+    end
+    return nil
+end
+
 local function drawDifficultyBar(index, barinfo)
-    local tex    = G.difftx["difficultybar7"]
+    local tex    = G.difftx["difficultybar5"]   -- the vault bar
     if barinfo.vault == false then
         tex = G.difftx["difficultybar" .. (barinfo.difficulty)]
     end
@@ -225,7 +254,7 @@ function M.drawPanel()
             local y      = oy + r * gy
             G.drawCharaWithNameplate(i, x, y, s, s, opacityNorm, false)
             local charaX = x + G.bgtx["nameplate_info"].Width / 2 - NAMEPLATE_OFFSET_X
-            G.drawPlayerPuchi(i, charaX - PUCHI_OFFSET_X * s, y + G.puchiSineY * s, s, s, opacityNorm)
+            G.drawPlayerPuchi(i, charaX - PUCHI_OFFSET_X * s, y + G.puchiSineY * s, s, s, opacityNorm, false, G.puchiIdxFrame)
             if G.modicons_ro ~= nil then
                 G.modicons_ro:Draw(x, y + NAMEPLATE_HEIGHT + 4, i, nil, G.difficultySelectElemOpacity)
             end
@@ -269,7 +298,6 @@ function M.handleUpdate(ts)
             uniNavPlayer = i + 1
         end
         local navPn = G.NavInput.p[i]
-        local inputPn = G.inputSets[i]
 
         if G.activeConfig.mountAISlotToP2 and i == 2 then
             -- AI mirrors P1
@@ -283,13 +311,23 @@ function M.handleUpdate(ts)
                 CONFIG.AILevel = CONFIG.AILevel + 1; G.sounds.Skip:Play()
             end
         elseif G.diffSelected[i] == false then
+            -- one human player: moving the mouse over a bar selects it, a click on it decides
+            local click = false
+            if i == 1 and G.mouseAllowed() then
+                local target = mouseTarget()
+                local mdx, mdy = INPUT:GetMouseDelta()
+                if target ~= nil and target ~= G.diffIndex[1] and (mdx ~= 0 or mdy ~= 0) then
+                    G.sounds.Skip:Play(); G.diffIndex[1] = target
+                end
+                click = target ~= nil and target == G.diffIndex[1] and INPUT:MousePressed("Left")
+            end
             if navPn.right(i == uniNavPlayer) then
                 G.sounds.Skip:Play()
                 G.diffIndex[i] = (G.diffIndex[i] + 1) % (3 + #G.diffBars)
             elseif navPn.left(i == uniNavPlayer) then
                 G.sounds.Skip:Play()
                 G.diffIndex[i] = (G.diffIndex[i] - 1) % (3 + #G.diffBars)
-            elseif navPn.decide(i == uniNavPlayer) then
+            elseif navPn.decide(i == uniNavPlayer) or click then
                 if G.diffIndex[i] == 0 then
                     canceled = true
                 elseif G.diffIndex[i] == 1 then
@@ -306,7 +344,7 @@ function M.handleUpdate(ts)
                 else canceled = true end
             end
                 
-            if inputPn.auto ~= nil and INPUT:Pressed(inputPn.auto) then
+            if i <= 2 and G.shortcuts.pressed("auto_p" .. i) then
                 G.sounds.Decide:Play(); CONFIG:SetAutoStatus(i - 1, not CONFIG:GetAutoStatus(i - 1))
             end
         end

@@ -1,3 +1,7 @@
 /Assets
 # *.png.kra
 # *.kra
+
+# made by the game at run time
+/ThemeSettings.db3
+/Config/

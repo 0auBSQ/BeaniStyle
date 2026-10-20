@@ -1,320 +1,330 @@
--- ═══════════════════════════════════════════════════════════════════════════════
--- pagoda / Script.lua
--- Pagoda of the Unknown — standalone stage (split out of dan_select).
---
--- Reached from dan_select via the `dan_doors` transition (doors close over the dojo,
--- open onto this title screen) and returns the same way. The title screen layers,
--- bottom-to-top: animated day skybox (Lua3DScene) → the selector's tower scene resting at
--- the base floor (selector.drawTitle — identical to hovering level 10 in the selector) →
--- the pagoda UI (title / best rank / Challenge·Practice·Exit menu), drawn by pagoda.lua.
--- Owns a looping Title BGM that fades in as the doors open and out as they close.
--- All menu / challenge / practice logic lives in pagoda.lua; this file is the shell.
--- ═══════════════════════════════════════════════════════════════════════════════
+---@diagnostic disable: undefined-global, undefined-field
+-- pagoda (generic): a climb of dan floors (Pagoda.Run), entered from the dojo (dan_select). Pick a starting
+-- floor or practice; each floor shows its songs and exams before the play; a clear grants the floor's rewards
+-- (pop-ups) and goes up one floor, a loss ends the run. Practice plays any floor reached so far and saves
+-- nothing. Plain SimpleUI screens (Lib/GenericScreen.lua), no art of its own.
 
-local OWM      = require("OWM3d")
-local pagoda   = require("pagoda")
-local selector = require("selector")
-local NavInput = require("NavInput")
+local Run = require("Pagoda.Run")
+local Floor = require("Pagoda.Floor")
+local Levels = require("Pagoda.Levels")
+local Progress = require("Pagoda.Progress")
+local Rewards = require("Pagoda.Rewards")
+local Songs = require("Pagoda.Songs")
+local S = require("GenericScreen")
 
-local TXT = "Textures/tower/"
-local SEL = "Textures/selector/"
-local PTC = "Textures/particles/"
-local SND = "Sounds/"
+local DIFF_NAMES = { [0] = "Easy", [1] = "Normal", [2] = "Hard", [3] = "Extreme", [4] = "Extra Extreme" }
+local POOL_COLORS = { blue = { 70, 120, 200 }, green = { 70, 160, 100 }, red = { 200, 70, 60 }, purple = { 130, 80, 180 } }
+local EXAM_TYPES = { g = 0, jp = 1, jg = 2, jb = 3, s = 4, r = 5, h = 6, c = 7, a = 8, ja = 9, jm = 10 }
 
--- ── Constants ────────────────────────────────────────────────────────────────
+local EXIT_TRANSITION = "dan_doors_back"   -- back to the dojo
 
-local PUCHI_FLOAT_AMP = 6.0
-local PUCHI_N_FRAMES  = 2
+local screen = "menu"        -- "loading", "missing", "menu", "practice", "floor", "result"
+local ui = nil
+local action = nil
+local run = nil              -- the challenge run, kept across the plays
+local practiceLevel = nil
+local roll = nil
+local awaiting = nil         -- "run" or "practice" while a play is under way
+local savedSpeed = nil
+local result = nil           -- { level, passed, practice }
+local rewardQueue = {}
+local rewardOn = false
+local missing = 0            -- the pagoda's songs that are not installed
 
-local BGM_FADE_SEC = 0.7   -- match dan_doors FADE_OUT_SECONDS / FADE_IN_SECONDS
+local function level() return run and run.level or practiceLevel end
+local function diffName(d) return S.tr("SS_DIFF_" .. d, DIFF_NAMES[d] or "") end
 
--- Sky animation speed multiplier: the day sky's clouds/sun drift off the scene's time,
--- which advances 1:1 with real time by default (feels static). Scale it up for livelier
--- clouds without touching the fixed noon time-of-day.
-local SKY_SPEED = 5
-
--- ── State ────────────────────────────────────────────────────────────────────
-
-local world        = nil   -- 3D day-sky scene (lazily created on first activate)
-local world_failed = false -- disable the skybox for the session if it ever errors
-local tex         = nil    -- table of tower + selector textures (built lazily)
-local font_header  = nil   -- selector: Practice / Start at... / Exit
-local font_name    = nil   -- selector: level name on the details strip
-local font_confirm = nil   -- selector: "Accept the Challenge?" prompt
-local snd_bgm   = nil
-
-local bgm_vol   = 0.0    -- current BGM volume percent (0..100)
-local bgm_fade  = nil    -- "in" | "out" | nil
-local exiting   = false  -- true once we've called Exit() to leave for the dojo
-
--- ── BGM (fade in / out instead of a hard start / stop) ────────────────────────
-
-local function startBGM()
-    if snd_bgm == nil then return end
-    if not snd_bgm.IsPlaying then
-        bgm_vol = 0.0
-        snd_bgm:SetVolumePercent(0)
-        snd_bgm:SetLoop(true)
-        snd_bgm:Play()
-    end
-    bgm_fade = "in"   -- ramp up to full; a no-op once already at 100
+local function closeUI()
+    if ui ~= nil then ui:disposeWidgets() end
+    ui = nil
 end
 
-local function stopBGM()
-    if snd_bgm ~= nil and snd_bgm.IsPlaying then snd_bgm:Stop() end
-    bgm_fade = nil
+local function newUI()
+    closeUI()
+    ui = S.newUI{ navPlayer = 1 }
+    action = nil
+    return ui
 end
 
--- ── Shared callbacks handed to pagoda.lua (same shape dan_select provided) ─────
-
-local CB = {
-    startBGM = startBGM,
-    stopBGM  = stopBGM,
-    ctx = {},
-    puchiSineY    = 0,
-    puchiIdxFrame = 0,
-}
-
-function CB.startCounter(key, startVal, endVal, interval, mode, updateCallback, onFinish)
-    local c = COUNTER:CreateCounter(startVal, endVal, interval, onFinish)
-    if mode == "loop"   then c:SetLoop(true)
-    elseif mode == "bounce" then c:SetBounce(true) end
-    if updateCallback then c:Listen(updateCallback) end
-    c:Start()
-    CB.ctx[key] = c
-    return c
-end
-
-function CB.drawPlayerChara(x, y, opacity)
-    local chara = GetSaveFile(0):GetCharacter()
-    if chara ~= nil and chara.IsValid then
-        chara:Update(CHARACTER.ANIM_MENU_NORMAL, true)
-        chara:DrawAtAnchor(x, y, CHARACTER.ANIM_MENU_NORMAL, "bottom", 1.0, 1.0, math.floor(opacity * 255))
+local function buttonRow(list, y)
+    local w, gap = 360, 30
+    local x = S.W - S.margin - (#list * w + (#list - 1) * gap)
+    for i, b in ipairs(list) do
+        local btn = ui:button{ text = b[1], x = x + (i - 1) * (w + gap), y = y, w = w, h = 80, accent = (i == 1),
+            onClick = function() action = b[2] end }
+        if i == 1 then ui:focus(btn) end
     end
 end
 
-function CB.drawPlayerPuchi(x, y, opacity, idxFrame)
-    local puchi = GetSaveFile(0):GetPuchichara()
-    if puchi == nil or puchi.tx == nil or not puchi.tx.Loaded then return end
-    local frameW = math.floor(puchi.tx.Width / PUCHI_N_FRAMES)
-    idxFrame = idxFrame or 0
-    puchi.tx:SetScale(1.0, 1.0)
-    puchi.tx:SetOpacity(opacity)
-    puchi.tx:DrawRectAtAnchor(x, y, idxFrame * frameW, 0, frameW, puchi.tx.Height, "bottom")
-    puchi.tx:SetOpacity(1.0)
+local function floorMenu(items, h, rowHeight)
+    ui:focus(ui:menu{ x = S.margin, y = S.headerH + 40, w = 700, h = h, rowHeight = rowHeight, items = items,
+        scrollbar = #items * rowHeight > h, onSelect = function(_, it) action = it.value; return true end })
 end
 
-local function load_menu_chara()
-    local chara = GetSaveFile(0):GetCharacter()
-    if chara ~= nil and chara.IsValid then chara:LoadAnimation(CHARACTER.ANIM_MENU_NORMAL) end
+local function openWait(kind)
+    screen = kind
+    newUI()
+    buttonRow({ { S.tr("COMMON_BACK", "Back"), "back" } }, S.H - S.footerH - 120)
 end
 
--- ── Lazy resource creation ────────────────────────────────────────────────────
-
--- onStart runs eagerly at skin-load for every stage, so the (relatively heavy) day-sky
--- scene is built on the first real entry instead and kept alive until the stage is torn
--- down, so re-entries after each play round are instant.
-local function ensure_world()
-    if world ~= nil then return end
-    local res = THEME:GetResolution()
-    world = OWM.World.new{
-        rw = 1280, rh = 720,
-        screenW = res.X, screenH = res.Y,
-        fov = 30, yaw = 40, pitch = -6,
-        lit = true, hour = 12,          -- noon → clear day sky
-    }
-    world:setFog(false)
-
-    -- Warm the sky shader here (ensure_world runs in activate(), during the door
-    -- transition's Load phase while the doors are shut). Otherwise the very first
-    -- world:render() — a multi-hundred-ms GPU shader compile — happens inside the
-    -- FadeIn's Target.Draw(), which inflates the transition's elapsed time past
-    -- FadeInSeconds (0.7s) so `t` clamps to 1.0 and the doors snap open with no
-    -- animation on first entry (CStageTransition.cs FadeIn). Best-effort: if an
-    -- off-screen warm render isn't valid here, we simply compile on the first draw().
-    pcall(function() world:update(0, 0, 0, 0) ; world:render() end)
-end
-
-local function ensure_resources()
-    if tex == nil then
-        tex = {
-            -- (landbg.png / floor.png are no longer loaded: the title reuses the selector's
-            --  scene, and floor.png only serves as the offline crop source for floor_top +
-            --  the top of road_stairs_base)
-            floor_top = TEXTURE:CreateTexture(TXT .. "floor_top.png"),   -- level 10 (pagoda base, rows 0-436)
-            normal = TEXTURE:CreateTexture(TXT .. "normal.png"),
-            roof   = TEXTURE:CreateTexture(TXT .. "roof.png"),
-            roof_beanstalk = TEXTURE:CreateTexture(TXT .. "roof_beanstalk.png"), -- roof 1 variant once door 10 beaten
-            beanstalk = TEXTURE:CreateTexture(TXT .. "beanstalk.png"),    -- roof 2+ continuity (single repeatable tile)
-            checkpoint_cleared = TEXTURE:CreateTexture(TXT .. "checkpoint_cleared.png"),
-            -- foreground road column (right-aligned, path @ x=812): repeatable forest/stairs tiles +
-            -- the L5/L9 transition tiles. The niōmon gate + lanterns are overlay objects; the dojo
-            -- is the full-width top-view tile in the slot BELOW level 1 (the departure point).
-            road_forest        = TEXTURE:CreateTexture(TXT .. "road_forest.png"),        -- levels 1-4
-            road_stairs        = TEXTURE:CreateTexture(TXT .. "road_stairs.png"),        -- levels 6-8
-            road_forest_stairs = TEXTURE:CreateTexture(TXT .. "road_forest_stairs.png"), -- level 5
-            road_stairs_base   = TEXTURE:CreateTexture(TXT .. "road_stairs_base.png"),   -- level 9
-            dojo    = TEXTURE:CreateTexture(TXT .. "dojo.png"),   -- slot 0: dojo from above
-            niomon  = TEXTURE:CreateTexture(TXT .. "gate.png"),   -- guardian gate (L5)
-            lantern = TEXTURE:CreateTexture(TXT .. "lantern.png"),
-            -- parallax background (separate images): forest fill + treeline fringe + 3 mountain layers
-            bg_far1     = TEXTURE:CreateTexture(TXT .. "bg/far1.png"),     -- distant snow peaks (slowest)
-            bg_far2     = TEXTURE:CreateTexture(TXT .. "bg/far2.png"),     -- mid ridge
-            bg_far3     = TEXTURE:CreateTexture(TXT .. "bg/far3.png"),     -- near ridge + foothills + skirt
-            bg_near     = TEXTURE:CreateTexture(TXT .. "bg/near.png"),     -- 2D-tiled forest canopy
-            bg_near_top = TEXTURE:CreateTexture(TXT .. "bg/near_top.png"), -- organic treeline cap
-            caret    = TEXTURE:CreateTexture(SEL .. "caret.png"),
-            caret_up = TEXTURE:CreateTexture(SEL .. "caret_up.png"),
-            gate     = TEXTURE:CreateTexture(SEL .. "gate.png"),
-            gateT    = TEXTURE:CreateTexture(SEL .. "gateT.png"),
-            gateR    = TEXTURE:CreateTexture(SEL .. "gateR.png"),
-            details  = TEXTURE:CreateTexture(SEL .. "details.png"),
-            frame    = TEXTURE:CreateTexture(SEL .. "frame.png"),
-            shadow   = TEXTURE:CreateTexture(PTC .. "shadow.png"),
-            spiral   = TEXTURE:CreateTexture(PTC .. "spiral.png"),
-            cloud    = TEXTURE:CreateTexture(PTC .. "cloud.png"),
-            spark    = TEXTURE:CreateTexture(PTC .. "spark.png"),
-            sword    = TEXTURE:CreateTexture(SEL .. "sword.png"),
-            black1   = TEXTURE:CreateTexture(SEL .. "black1.png"),
-            num = {},
-        }
-        for d = 0, 9 do tex.num[d] = TEXTURE:CreateTexture(SEL .. "number/" .. d .. ".png") end
+local function openMenu()
+    screen = "menu"
+    newUI()
+    local items = {}
+    for _, lv in ipairs(Run.startOptions()) do
+        items[#items + 1] = { text = S.trf("PAGODA_START_AT", "Climb from {floor}", { floor = Levels.level_name(lv) }), value = { start = lv } }
     end
-    if font_header  == nil then font_header  = TEXT:Create(40, "regular") end
-    if font_name    == nil then font_name    = TEXT:Create(30, "regular") end
-    if font_confirm == nil then font_confirm = TEXT:Create(64, "regular") end
-    selector.setup(world, tex, { header = font_header, name = font_name, confirm = font_confirm })
+    items[#items + 1] = { text = S.tr("PAGODA_PRACTICE", "Practice"), value = { practice = true } }
+    floorMenu(items, #items * 76, 76)
 end
 
--- ── Lifecycle ────────────────────────────────────────────────────────────────
+local function openPractice()
+    screen = "practice"
+    newUI()
+    local items = {}
+    for _, lv in ipairs(Run.practiceLevels()) do items[#items + 1] = { text = Levels.level_name(lv), value = { level = lv } } end
+    floorMenu(items, S.H - S.footerH - 70 - S.headerH, 72)
+end
+
+local function openFloor()
+    screen = "floor"
+    newUI()
+    buttonRow({ { S.tr("COMMON_PLAY", "Play"), "play" }, { S.tr("COMMON_BACK", "Back"), "back" } }, S.H - S.footerH - 120)
+end
+
+local function openResult()
+    screen = "result"
+    newUI()
+    local list = {}
+    if result.passed and run ~= nil then list[#list + 1] = { S.tr("PAGODA_NEXT", "Next floor"), "next" } end
+    list[#list + 1] = { S.tr("PAGODA_TO_MENU", "Back to the pagoda"), "menu" }
+    buttonRow(list, S.H - S.footerH - 120)
+end
+
+-- the screen to show when nothing is under way: the songs must be listed and installed first
+local function openStart()
+    if IsSongsEnumerating() then openWait("loading"); return end
+    missing = Songs.count_missing_songs() or 0
+    if missing > 0 then openWait("missing"); return end
+    openMenu()
+end
+
+local function startPlay(kind)
+    local opts = { genre = S.tr("PAGODA_TITLE", "Pagoda") }
+    local ok
+    if kind == "run" then
+        run:enter()
+        ok = run:buildDan(opts)
+    else
+        ok = Floor.buildDan(practiceLevel, roll, opts)
+    end
+    if not ok or not DANBUILDER:Mount() then
+        if run ~= nil then run.roll = roll end   -- the songs on screen stay this floor's
+        S.sound("Error")
+        return nil
+    end
+    savedSpeed = CONFIG.SongSpeed
+    CONFIG.SongSpeed = (roll and roll.speed) or Floor.speed(level())
+    CONFIG.PlayerCount = 1
+    awaiting = kind
+    S.sound("SongDecide")
+    return Exit("play", nil)
+end
+
+-- back from a play: the result of the floor
+local function onReturn()
+    if savedSpeed ~= nil then CONFIG.SongSpeed = savedSpeed; savedSpeed = nil end
+    local passed = PLAYSTATE:IsPass() and not PLAYSTATE:WasPlayAborted()
+    local kind = awaiting
+    awaiting = nil
+    if kind == "run" then
+        result = { level = run.level, passed = passed }
+        if passed then
+            local r = run:clear()
+            for _, rw in ipairs(r.rewards) do rewardQueue[#rewardQueue + 1] = rw end
+            roll = run:rollFloor()
+        else
+            run:fail()
+            run = nil
+        end
+    else
+        result = { level = practiceLevel, passed = passed, practice = true }
+    end
+    openResult()
+end
 
 function onStart()
-    -- Nothing heavy here: fonts belong to pagoda.lua, and the 3D scene / textures are
-    -- created lazily in activate() so a skin-load never spins up an unused day sky.
-end
-
-function onDestroy()
-    if world ~= nil then world:dispose() ; world = nil end
-    if tex ~= nil then
-        for _, t in pairs(tex) do
-            if type(t) == "table" then for _, g in pairs(t) do if g ~= nil then g:Dispose() end end
-            elseif t ~= nil then t:Dispose() end
-        end
-        tex = nil
-    end
-    if font_header  ~= nil then font_header:Dispose()  ; font_header  = nil end
-    if font_name    ~= nil then font_name:Dispose()    ; font_name    = nil end
-    if font_confirm ~= nil then font_confirm:Dispose() ; font_confirm = nil end
-    pagoda.destroy()
 end
 
 function activate()
-    CONFIG.PlayerCount = 1
-    CONFIG.SongSpeed   = 20   -- reset speed (a challenge may have changed it)
-
-    exiting      = false
-    world_failed = false
-    ensure_world()
-    ensure_resources()
-    load_menu_chara()
-
-    snd_bgm = SOUND:CreateBGM(SND .. "Title.ogg")
-
-    CB.startCounter("puchi_sine", 0, 360, 1/120, "loop", function(val)
-        CB.puchiSineY = math.sin(val * math.pi / 180) * PUCHI_FLOAT_AMP
-    end)
-    CB.startCounter("puchi_frame", 0, 1, 4.8, "loop", function(val)
-        CB.puchiIdxFrame = math.floor(val * PUCHI_N_FRAMES)
-    end)
-
-    -- Returning from a just-played dan (challenge / practice) restores the post-play
-    -- screen; a fresh entry from the dojo opens the title menu.
-    if pagoda.is_returning_from_play() then
-        pagoda.activate(CB)
-        pagoda.on_return(CB)
-    else
-        pagoda.enter(CB)
-    end
-
-    startBGM()   -- silent → swells in during the door-open FadeIn
+    S.resetKeys()
+    Progress.migrate_save()
+    rewardOn = false
+    if awaiting ~= nil then onReturn() else openStart() end
 end
 
 function deactivate()
-    stopBGM()
-    selector.close()   -- defensive: restore the sky if we ever leave mid-selection
-    pagoda.deactivate()
-
-    for k in pairs(CB.ctx) do CB.ctx[k] = COUNTER:EmptyCounter() end
-
-    if snd_bgm ~= nil then snd_bgm:Dispose() ; snd_bgm = nil end
+    Rewards.stop()
+    rewardOn = false
+    closeUI()
 end
 
 function afterSongEnum()
-    pagoda.afterSongEnum()
+    Songs.clear_cache()
+    Levels.clear_pools()
+    if screen == "loading" or screen == "missing" then openStart() end
 end
 
--- ── Update ────────────────────────────────────────────────────────────────────
+local function leave()
+    S.sound("Cancel")
+    run = nil
+    return Exit("stage", "dan_select", EXIT_TRANSITION)
+end
 
-function update()
-    local dt = fps.deltaTime
-
-    -- Advance the day sky (drifts clouds / sun via uTime). Guarded: a map-less 3D
-    -- scene is an untrodden path, so if it ever throws we drop the skybox for the
-    -- session and keep the rest of the title screen alive.
-    if world ~= nil and not world_failed then
-        if not pcall(world.update, world, dt * SKY_SPEED, 0, 0, 0) then world_failed = true end
+function update(ts)
+    -- the rewards of a clear, one pop-up after the other
+    if rewardOn then
+        if Rewards.update() then return nil end
+        rewardOn = false
+    end
+    if #rewardQueue > 0 then
+        local r = table.remove(rewardQueue, 1)
+        if Rewards.show(r) then rewardOn = true end
+        return nil
     end
 
-    -- BGM fade-in (advances during the door-open FadeIn phase and normal play).
-    if bgm_fade == "in" and snd_bgm ~= nil then
-        bgm_vol = math.min(100, bgm_vol + dt / BGM_FADE_SEC * 100)
-        snd_bgm:SetVolumePercent(bgm_vol)
-        if bgm_vol >= 100 then bgm_fade = nil end
-    end
-
-    if INPUT:Pressed("ToggleAutoP1") then
-        CONFIG:SetAutoStatus(0, not CONFIG:GetAutoStatus(0))
-        SHARED:GetSharedSound("Move"):Play()
-    end
-
-    -- pagoda.lua ticks CB.ctx itself, drives its state machine, and returns a verb.
-    local result = pagoda.update(dt)
-    if result == "back" then
-        -- Exit → back to the dojo. Fade the Title BGM out as the doors close (draw()
-        -- keeps running through the FadeOut phase; update() does not).
-        exiting  = true
-        bgm_fade = "out"
-        return Exit("stage", "dan_select", "dan_doors")
-    elseif result == "play" then
-        -- pagoda already hard-stopped the BGM via _CB.stopBGM before returning "play".
-        return Exit("play", nil)
+    action = nil
+    local cancel = ui:update(ts) == "cancel"
+    if screen == "loading" or screen == "missing" then
+        if cancel or action == "back" then return leave() end
+    elseif screen == "menu" then
+        if cancel then return leave() end
+        if action and action.start then
+            S.sound("Decide")
+            run = Run.new(action.start)
+            roll = run:rollFloor()
+            openFloor()
+        elseif action and action.practice then
+            S.sound("Decide"); openPractice()
+        end
+    elseif screen == "practice" then
+        if cancel then S.sound("Cancel"); openMenu()
+        elseif action and action.level then
+            S.sound("Decide")
+            run = nil
+            practiceLevel = action.level
+            roll = Floor.rollFloor(practiceLevel)
+            openFloor()
+        end
+    elseif screen == "floor" then
+        if cancel or action == "back" then
+            S.sound("Cancel")
+            if run ~= nil then run = nil; openMenu() else openPractice() end
+        elseif action == "play" then
+            return startPlay(run ~= nil and "run" or "practice")
+        end
+    elseif screen == "result" then
+        if action == "next" and run ~= nil then S.sound("Decide"); openFloor()
+        elseif action == "menu" or cancel then
+            S.sound(cancel and "Cancel" or "Decide")
+            run = nil
+            openMenu()
+        end
     end
 end
 
--- ── Draw ─────────────────────────────────────────────────────────────────────
+-- ── drawing ─────────────────────────────────────────────────────────────────
+
+local function examText(e)
+    local name = LANG:GetExamName(EXAM_TYPES[e[1]] or 0) or e[1]
+    local cmp = e[4] and "<" or ">="
+    return string.format("%s  %s %d  /  %d", name, cmp, e[2], e[3])
+end
+
+local function drawNotice(title, line)
+    local x, y, w = S.margin, S.headerH + 40, S.W - 2 * S.margin
+    S.panel(x, y, w, 300)
+    S.text(title, x + 60, y + 80, S.font.label, S.colors.text)
+    S.wrapped(line, x + 60, y + 150, w - 120, S.font.body, S.colors.textDim)
+end
+
+local function drawProgress()
+    local x, y, w = 820, S.headerH + 40, S.W - 820 - S.margin
+    S.panel(x, y, w, 300)
+    local hi = Progress.highest_level()
+    local best = hi > 0 and Levels.level_name(hi) or "-"
+    S.text(S.trf("PAGODA_BEST", "Highest floor cleared: {floor}", { floor = best }), x + 40, y + 40, S.font.body, S.colors.text)
+    local reach = Progress.highest_reached()
+    S.text(S.trf("PAGODA_REACHED", "Highest floor reached: {floor}", { floor = reach > 0 and Levels.level_name(reach) or "-" }),
+        x + 40, y + 110, S.font.body, S.colors.text)
+    S.text(S.trf("PAGODA_PLAYS", "Runs played: {n}", { n = Progress.plays() }), x + 40, y + 180, S.font.body, S.colors.text)
+end
+
+local function drawFloor()
+    local lv = level()
+    local x, y, w = S.margin, S.headerH + 40, S.W - 2 * S.margin
+    S.panel(x, y, w, 720)
+    local plate = ROACTIVITY:GetROActivity("danplate")
+    local tc = Levels.level_tick_color(lv)
+    if plate ~= nil then plate:Draw(x + 150, y + 250, 255, Levels.level_tick(lv), tc[1], tc[2], tc[3], Levels.level_name(lv)) end
+    S.text(Levels.level_name(lv), x + 300, y + 80, S.font.big, S.colors.text)
+    local sub = run and S.tr("PAGODA_CHALLENGE", "Challenge") or S.tr("PAGODA_PRACTICE", "Practice")
+    S.text(sub, x + 300, y + 170, S.font.body, S.colors.textDim)
+
+    local yy = y + 320
+    S.text(S.tr("DAN_SONGS", "Songs"), x + 300, yy, S.font.label, S.colors.text)
+    yy = yy + 60
+    local list = {}
+    for _, it in ipairs((roll and roll.songs) or {}) do list[#list + 1] = it end
+    if roll and roll.purple then list[#list + 1] = { color = "purple", node = roll.purple.node, entry = roll.purple.entry } end
+    for i, it in ipairs(list) do
+        S.rect(x + 300, yy, 12, 48, POOL_COLORS[it.color] or S.colors.primary)
+        S.text(string.format("%d.  %s", i, it.node.Title or "?"), x + 332, yy + 24, S.font.body, S.colors.text, "left", 1, 600)
+        S.text(diffName(it.entry.diff or 3), x + 960, yy + 24, S.font.body, S.colors.textDim, "left")
+        yy = yy + 60
+    end
+
+    local ex, ey = x + 1220, y + 320
+    S.text(S.tr("DAN_EXAMS", "Exams"), ex, ey, S.font.label, S.colors.text)
+    ey = ey + 60
+    for _, e in ipairs(Floor.exams(lv, roll and roll.purple ~= nil)) do
+        S.text(examText(e), ex, ey, S.font.body, S.colors.text, "topleft", 1, w - 1220 - 40)
+        ey = ey + 54
+    end
+end
+
+local function drawResult()
+    local x, y, w = S.margin, S.headerH + 40, S.W - 2 * S.margin
+    S.panel(x, y, w, 520)
+    local name = Levels.level_name(result.level)
+    local title = result.passed and S.trf("PAGODA_CLEARED", "{floor} cleared", { floor = name })
+        or S.trf("PAGODA_FAILED", "{floor} failed", { floor = name })
+    S.rect(x, y, 12, 520, result.passed and S.colors.good or S.colors.bad)
+    S.text(title, x + 80, y + 80, S.font.big, S.colors.text)
+    local line
+    if result.practice then line = S.tr("PAGODA_PRACTICE_DONE", "Practice plays save nothing.")
+    elseif result.passed then line = S.trf("PAGODA_NEXT_IS", "Next: {floor}", { floor = Levels.level_name(result.level + 1) })
+    else line = S.tr("PAGODA_RUN_OVER", "The run is over.") end
+    S.text(line, x + 80, y + 200, S.font.label, S.colors.textDim)
+end
 
 function draw()
-    -- Layer 0 — animated day skybox (pcall-guarded, see update()).
-    if world ~= nil and not world_failed then
-        local ok = pcall(world.render, world)
-        if ok then ok = pcall(world.blit, world) end
-        if not ok then world_failed = true end
-    end
+    S.clear()
+    S.header(S.tr("PAGODA_TITLE", "Pagoda"))
+    if screen == "loading" then
+        drawNotice(S.tr("PAGODA_LOADING", "Loading songs..."), S.tr("PAGODA_LOADING_DESC", "The pagoda opens once the song list is ready."))
+    elseif screen == "missing" then
+        drawNotice(S.tr("PAGODA_MISSING", "Songs are missing"),
+            S.trf("PAGODA_MISSING_DESC", "{n} songs of the pagoda are not installed. Install them to climb the pagoda.", { n = missing }))
+    elseif screen == "menu" then drawProgress()
+    elseif screen == "floor" then drawFloor()
+    elseif screen == "result" then drawResult() end
+    if ui ~= nil then ui:draw() end
+    S.footer({ { S.key("decide"), S.tr("COMMON_SELECT", "Select") }, { S.key("cancel"), S.tr("COMMON_BACK", "Back") } })
+    if rewardOn then Rewards.draw() end
+end
 
-    -- Title background — only when the floor selector isn't up (selector.draw() renders the
-    -- same scene itself then). This is the selector's landscape + tower resting at the base
-    -- floor (level 10) — identical to hovering it — and since the camera EASES to that pose,
-    -- backing out of Challenge/Practice scrolls smoothly home instead of snapping.
-    if tex ~= nil and not selector.active then
-        selector.drawTitle(pagoda.highest_level())
-    end
-
-    -- BGM fade-out while the doors close (update() is frozen once Exit() was called).
-    if exiting and bgm_fade == "out" and snd_bgm ~= nil then
-        bgm_vol = math.max(0, bgm_vol - fps.deltaTime / BGM_FADE_SEC * 100)
-        snd_bgm:SetVolumePercent(bgm_vol)
-    end
-
-    -- Layer 5 — pagoda UI (title / best rank / menu / previews / results / nameplate).
-    pagoda.draw()
+function onDestroy()
+    closeUI()
+    S.dispose()
 end

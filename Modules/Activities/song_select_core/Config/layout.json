@@ -22,7 +22,10 @@
         "level_y_offset": 10,
         "barleft_x_offset": 1,
         "fav_icon_x_offset": 535,
-        "fav_icon_y_offset": 8
+        "fav_icon_y_offset": 8,
+        "shortcuts_helper_x": 44, "shortcuts_helper_y": 178, "shortcuts_helper_pulse_ms": 2400, "shortcuts_helper_opacity_min": 0.45,
+        "shortcuts_helper_pad_x": 16, "shortcuts_helper_pad_y": 8, "shortcuts_helper_box_alpha": 150, "shortcuts_helper_box_radius": 10,
+        "hit_left": 4, "hit_right": 686, "hit_top": 4, "hit_bottom": 75
     },
 
     "folder_anim": {

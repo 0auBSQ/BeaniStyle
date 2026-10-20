@@ -1,7 +1,6 @@
 -- standard_dan.lua  —  Standard Dan Challenge sub-module for dan_select
 
 local NavInput       = require("NavInput")
-local EM             = require("EventMode")
 
 local M = {}
 local ContentsDrawer = require("standard_dan_contents_draw")
@@ -327,9 +326,8 @@ local function _teardown_entry()
     for k in pairs(act_was_active) do act_was_active[k] = nil end
 end
 
--- the options the scroll offers: Event Mode leaves the customize one out
+-- the options the scroll offers
 local function _confirm_options()
-    if EM.on() then return { 0, 2, 3 } end
     return { 0, 1, 2, 3 }
 end
 
@@ -487,7 +485,7 @@ function M.update(dt)
         if bar_y_offset == 0.0 then bar_y_offset_counter = nil end
     end
 
-    if INPUT:Pressed("ToggleAutoP1") and not EM.on() then
+    if INPUT:Pressed("ToggleAutoP1") then
         CONFIG:SetAutoStatus(0, not CONFIG:GetAutoStatus(0))
         SHARED:GetSharedSound("Move"):Play()
     end

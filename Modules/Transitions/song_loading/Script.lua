@@ -11,7 +11,25 @@
 FADE_OUT_SECONDS = 1.0
 FADE_IN_SECONDS  = 1.0
 
-local TA = require("TransitionArt")
+-- the fade-out waits at its start until this trip's textures can be drawn, then plays in the time left, so it
+-- still ends on time (reset() for a new trip, progress(t, ...) with the textures or false while one is pending)
+local function newWait()
+	local w = { from = nil }
+	function w:reset() self.from = nil end
+	function w:progress(t, ...)
+		if t >= 1 then return 1 end
+		if self.from == nil then
+			for i = 1, select("#", ...) do
+				local x = select(i, ...)
+				if x == false then return 0 end
+				if x ~= nil and x ~= true and x.Loaded and not x.Ready then return 0 end
+			end
+			self.from = t
+		end
+		return (t - self.from) / (1 - self.from)
+	end
+	return w
+end
 local PlayStrings = require("PlayStrings")
 
 local TEXTURES_DIR = "Textures/"
@@ -39,7 +57,7 @@ local bg_scroll_y = 0
 local dan_tick, dan_r, dan_g, dan_b, dan_title = 0, 255, 255, 255, ""
 local initialized  = false
 local luaPhase     = nil                      -- "out" | "load" | "in" — used to detect a fresh transition
-local wait         = TA.new()
+local wait         = newWait()
 
 -- Tuning (mirrors the old ROActivity)
 local SLIDE_DURATION, SLIDE_STAGGER = 0.35, 0.28
@@ -88,7 +106,6 @@ local function close_tower_view()
 end
 
 -- everything drawn is made for one trip and freed at its fadeIn(1), which also ends a cancelled load
--- (Lib/TransitionArt)
 local function freeTextures()
 	for i = 1, #characters do
 		if characters[i] ~= nil then characters[i]:DisposeAnimation(CHARACTER.ANIM_RENDER) end

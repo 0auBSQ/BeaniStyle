@@ -1,12 +1,6 @@
---func:DrawText(x, y, text)
---func:DrawNum(x, y, num)
---func:AddGraph("filename")
---func:DrawGraph(x, y, filename)
---func:DrawRectGraph(x, y, rect_x, rect_y, rect_width, rect_height, filename)
---func:SetOpacity(opacity, "filename")
---func:SetScale(xscale, yscale, "filename")
---func:SetColor(r, g, b, "filename")
---func:SetRotation(angle, "filename")
+---@diagnostic disable: undefined-global  -- TEXTURE/fps injected by CLuaScript at runtime
+-- BeaniStyle's "failed" end animation (per-player text that fades in, flashes, then settles; en/ja art),
+-- ported from the 0.6.0 ScriptBG API to the 0.6.1 background module API.
 
 local x = { 499, 499, 499, 499, 499 }
 local y = { 0, 0, 0, 0, 0 }
@@ -19,55 +13,82 @@ local clear_text_offset_y = -3
 
 local textLang = "en"
 
+local tx = {}
+
+-- The old API took opacity as 0..255 (the engine truncated and clamped it); LuaTexture takes 0..1.
+local function toOpacity(v)
+    return math.max(0, math.min(v, 255)) / 255
+end
+
+-- Create a texture once; activate runs again on a retry, and must not load it twice.
+local function loadTexture(name)
+    if tx[name] == nil then
+        tx[name] = TEXTURE:CreateTexture(name)
+    end
+    return tx[name]
+end
+
 function clearIn(player)
 end
 
 function clearOut(player)
 end
 
+-- The old script reset every player's counter here; now only the player whose animation starts is reset,
+-- so a player starting later no longer restarts the others.
 function playEndAnime(player)
-    animeCounter = { 0, 0, 0, 0, 0 }
+    animeCounter[player + 1] = 0
 end
 
-function init()
-    if playerCount <= 2 then
+function activate(state)
+    if state.playerCount <= 2 then
         y = { 288, 552, 0, 0, 0 }
-    elseif playerCount == 5 then
+    elseif state.playerCount == 5 then
         y = { 58, 274, 490, 706, 922 }
     else
         y = { 69, 333, 597, 861, 0 }
     end
 
-    if lang == "ja" then
+    textLang = "en"
+    if state.lang == "ja" then
         textLang = "ja"
     end
 
-    func:AddGraph(textLang.."/Failed_Text_1.png")
-    func:AddGraph(textLang.."/Failed_Text_2.png")
-    func:AddGraph(textLang.."/Failed_Text_3.png")    
+    loadTexture(textLang .. "/Failed_Text_1.png")
+    loadTexture(textLang .. "/Failed_Text_2.png")
+    loadTexture(textLang .. "/Failed_Text_3.png")
+
+    -- a fresh start, as the old engine reloaded the script on every play
+    animeCounter = { 0, 0, 0, 0, 0 }
 end
 
-function update(player)
-    pos = player + 1
+function update(timestamp, state)
+    local pos = state.player + 1
 
-    animeCounter[pos] = animeCounter[pos] + (speed * deltaTime)
-    animeValue = animeCounter[pos]
+    animeCounter[pos] = animeCounter[pos] + (speed * fps.deltaTime)
 end
 
-function draw(player)
-    pos = player + 1
-    animeValue = animeCounter[pos]
+function draw(state)
+    local pos = state.player + 1
+    local animeValue = animeCounter[pos]
 
-    origin_x = x[pos]
-    origin_y = y[pos]
+    local origin_x = x[pos]
+    local origin_y = y[pos]
 
     if animeValue < 0.31 then
     elseif animeValue < 2.28 then
-        func:SetOpacity((animeValue - 0.31) * 255 * 4, textLang.."/Failed_Text_1.png")
-        func:DrawGraph(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, textLang.."/Failed_Text_1.png")
+        tx[textLang .. "/Failed_Text_1.png"]:SetOpacity(toOpacity((animeValue - 0.31) * 255 * 4))
+        tx[textLang .. "/Failed_Text_1.png"]:Draw(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y)
     elseif animeValue < 2.31 then
-        func:DrawGraph(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, textLang.."/Failed_Text_2.png")
+        tx[textLang .. "/Failed_Text_2.png"]:Draw(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y)
     else
-        func:DrawGraph(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, textLang.."/Failed_Text_3.png")
+        tx[textLang .. "/Failed_Text_3.png"]:Draw(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y)
     end
+end
+
+function onDestroy()
+    for _, t in pairs(tx) do
+        if t ~= nil then t:Dispose() end
+    end
+    tx = {}
 end

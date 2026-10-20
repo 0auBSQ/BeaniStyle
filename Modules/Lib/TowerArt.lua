@@ -2,15 +2,14 @@
 -- TowerArt.lua — draws a tower out of the pieces of a tower look, so the tower select, the loading screen and
 -- the result show the very tower the player climbs.
 --
--- Each look has its own folder next to this file, Modules/Lib/TowerArt/<look>/, named like the gameplay tower
--- background it copies (Graphics/5_Game/5_Background/Tower/Down/<look>/, which the chart's TOWERTYPE names):
+-- A look is a gameplay tower background, Graphics/5_Game/5_Background/Tower/Down/<look>/ (which the chart's
+-- TOWERTYPE names), read as it is and drawn at half size (PIECE_SCALE), so no copy of its pieces is needed:
 --   Base/BaseN.png   the floors, cycled every ten floors
 --   Deco/DecoN.png   a decoration over each floor, cycled every floor (optional)
 --   Top.png          the roof, one more floor over the last one
---   Config.json      in those pieces' pixels: floor_height (how far a floor's bottom sits above the one below),
---                    deco_dx / deco_dy (the decoration's bottom centre, from its floor's bottom centre)
--- The pieces are the gameplay ones at half size; tools/gen_tower_art.py makes them. A chart without a
--- TOWERTYPE, or with one that has no folder here, gets DEFAULT_LOOK.
+--   Config.json      the gameplay layout: body_x/body_y (a floor's bottom centre), deco_x/deco_y (its
+--                    decoration's), move_y (how far a floor's bottom sits above the one below)
+-- A chart without a TOWERTYPE, or with one that has no folder there, gets DEFAULT_LOOK.
 --
 --   local TowerArt = require("TowerArt")
 --   local art = TowerArt.load()             -- call it where textures may be created (activate / onStart)
@@ -23,6 +22,7 @@
 --   art:height(look, scale, floors)         -- the drawn height in pixels
 --   art:dispose()
 --
+-- scale 1 in art:draw / art:height is the half-size drawing (the gameplay pieces times PIECE_SCALE).
 -- Paths are relative to the calling module's folder; TowerArt.load(skinRoot) takes another root than the
 -- default "../../../" of a Stages/, Transitions/ or ROActivities/ module. Textures load asynchronously, so a
 -- look drawn right after preload pops in a frame or two later, unless the caller waits for art:ready(look).
@@ -30,8 +30,9 @@
 local TowerArt = {}
 TowerArt.__index = TowerArt
 
-local ART_DIR = "Modules/Lib/TowerArt/"
-local DEFAULT_LOOK = "Day"          -- also gameplay's: the Tower "" preset in Presets.json lists only this look
+local ART_DIR = "Graphics/5_Game/5_Background/Tower/Down/"
+local DEFAULT_LOOK = "0"            -- BeaniStyle's tower (the Tower "" preset in Presets.json lists only this look)
+local PIECE_SCALE = 0.5             -- the menus' towers are the gameplay pieces at half size
 local BASES_PER_FLOOR_CYCLE = 10
 
 local function jget(node, key) return JSONLOADER:JsonGet(node, key) end
@@ -64,18 +65,19 @@ local function loadSequence(dir, prefix)
     return list
 end
 
+-- the look's gameplay layout (Config.json), as floor_height / deco_dx / deco_dy in the pieces' own pixels
 local function readLayout(dir)
-    local layout = { floor_height = 216, deco_dx = -135, deco_dy = -27 }
+    local g = { body_x = 960, body_y = 1014, deco_x = 690, deco_y = 960, move_y = 432 }
     if STORAGE:FileExists(dir .. "Config.json") then
         pcall(function()
             local cfg = JSONLOADER:JsonParseFileAny(dir .. "Config.json")
-            for k, _ in pairs(layout) do
+            for k, _ in pairs(g) do
                 local v = tonumber(jget(cfg, k))
-                if v ~= nil then layout[k] = v end
+                if v ~= nil then g[k] = v end
             end
         end)
     end
-    return layout
+    return { floor_height = g.move_y, deco_dx = g.deco_x - g.body_x, deco_dy = g.deco_y - g.body_y }
 end
 
 function TowerArt:preload(look)
@@ -107,7 +109,7 @@ function TowerArt:height(look, scale, floors)
     local pieces = self:preload(look)
     if pieces == nil then return 0 end
     local topH = pieces.top ~= nil and pieces.top.Height or 0
-    return (math.max(0, floors) * pieces.layout.floor_height + topH) * scale
+    return (math.max(0, floors) * pieces.layout.floor_height + topH) * scale * PIECE_SCALE
 end
 
 local function stamp(tex, x, y, scale, color, opacity)
@@ -121,6 +123,7 @@ function TowerArt:draw(look, x, bottomY, scale, floors, opts)
     local pieces = self:preload(look)
     if pieces == nil then return end
     opts = opts or {}
+    scale = scale * PIECE_SCALE
     local opacity = opts.opacity or 1.0
     local clipTop = opts.clipTop or -math.huge
     local clipBottom = opts.clipBottom or math.huge

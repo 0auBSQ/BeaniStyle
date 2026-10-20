@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "Назад",
+        "COMMON_CONTINUE": "Продолжить",
+        "COMMON_OK": "ОК",
+        "COMMON_PLAY": "Играть",
+        "COMMON_SELECT": "Выбрать",
+        "DAN_EXAMS": "Экзамены",
+        "DAN_SONGS": "Песни",
+        "SS_DIFF_0": "Легко",
+        "SS_DIFF_1": "Нормально",
+        "SS_DIFF_2": "Сложно",
+        "SS_DIFF_3": "Экстрим",
+        "SS_DIFF_4": "Экстра экстрим",
+        "SS_DIFF_5": "Башня",
+        "SS_DIFF_6": "Дан"
+    }
+}

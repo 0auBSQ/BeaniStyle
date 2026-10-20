@@ -1,11 +1,6 @@
---func:DrawText(x, y, text)
---func:DrawNum(x, y, num)
---func:AddGraph("filename")
---func:DrawGraph(x, y, filename)
---func:DrawRectGraph(x, y, rect_x, rect_y, rect_width, rect_height, filename)
---func:SetOpacity(opacity, "filename")
---func:SetScale(xscale, yscale, "filename")
---func:SetColor(r, g, b, "filename")
+---@diagnostic disable: undefined-global  -- TEXTURE/fps injected by CLuaScript at runtime
+-- BeaniStyle's "all perfect" end animation (the full combo one plus a fading-in backdrop; en/ja art),
+-- ported from the 0.6.0 ScriptBG API to the 0.6.1 background module API.
 
 local x = { 499, 499, 499, 499, 499 }
 local y = { 0, 0, 0, 0, 0 }
@@ -21,33 +16,53 @@ local fc_effect_state = { 0, 0, 0, 0, 0 }
 local text_fc_move_y = 20
 
 local effect_count = 39
-local left_origin_offset_x = 544
-local left_origin_offset_y = -21
-local right_origin_offset_x = 592
-local right_origin_offset_y = -21
 
 local clear_text_offset_x = 373
 local clear_text_offset_y = -3
 
 local textLang = "en"
 
-function drawClearText(text_x, text_y, value, name)
-    scale = 1.0 + (math.sin(math.min(value, 1) * math.pi) / 10.0)
+local tx = {}
 
-    func:SetOpacity(value * 255 * 2, name)
-    func:SetScale(1.0, scale, name)
-    func:DrawGraph(text_x, text_y - ((scale - 1.0) * 135), name)
+-- The old API took opacity as 0..255 (the engine truncated and clamped it); LuaTexture takes 0..1.
+local function toOpacity(v)
+    return math.max(0, math.min(v, 255)) / 255
 end
 
-function drawStar(star_x, star_y, value)
-    if value > 0 then
-        opacity = 255 - (math.max(math.min((value / 0.16) - 1.0, 1), 0) * 255)
-        scale = math.min(value / 0.16, 1)
-
-        func:SetOpacity(opacity, "Star.png")
-        func:SetScale(scale, scale, "Star.png")
-        func:DrawGraphCenter(star_x, star_y, "Star.png")
+-- Create a texture once; activate runs again on a retry, and must not load it twice.
+local function loadTexture(name)
+    if tx[name] == nil then
+        tx[name] = TEXTURE:CreateTexture(name)
     end
+    return tx[name]
+end
+
+local function drawClearText(text_x, text_y, value, name)
+    local scale = 1.0 + (math.sin(math.min(value, 1) * math.pi) / 10.0)
+
+    tx[name]:SetOpacity(toOpacity(value * 255 * 2))
+    tx[name]:SetScale(1.0, scale)
+    tx[name]:Draw(text_x, text_y - ((scale - 1.0) * 135))
+end
+
+local function drawStar(star_x, star_y, value)
+    if value > 0 then
+        local opacity = 255 - (math.max(math.min((value / 0.16) - 1.0, 1), 0) * 255)
+        local scale = math.min(value / 0.16, 1)
+
+        tx["Star.png"]:SetOpacity(toOpacity(opacity))
+        tx["Star.png"]:SetScale(scale, scale)
+        tx["Star.png"]:DrawAtAnchor(star_x, star_y, "center")
+    end
+end
+
+local function resetPlayer(pos)
+    animeCounter[pos] = 0
+    fc_text_states[pos] = 0
+    fc_text_values[pos] = 0
+    starAnimeValue[pos] = 0
+    fc_effect[pos] = 0
+    fc_effect_state[pos] = 0
 end
 
 function clearIn(player)
@@ -56,46 +71,51 @@ end
 function clearOut(player)
 end
 
+-- The old script reset every player's counters here; now only the player whose animation starts is reset,
+-- so a player starting later no longer restarts the others.
 function playEndAnime(player)
-    animeCounter = { 0, 0, 0, 0, 0 }
-    fc_text_states = { 0, 0, 0, 0, 0 }
-    fc_text_values = { 0, 0, 0, 0, 0 }
-    starAnimeValue = { 0, 0, 0, 0, 0 }
-    fc_effect = { 0, 0, 0, 0, 0 }
-    fc_effect_state = { 0, 0, 0, 0, 0 }
+    resetPlayer(player + 1)
 end
 
-function init()
-    if playerCount <= 2 then
+function onStart()
+    tx["Background.png"] = TEXTURE:CreateTexture("Background.png")
+    tx["Star.png"] = TEXTURE:CreateTexture("Star.png")
+end
+
+function activate(state)
+    if state.playerCount <= 2 then
         y = { 288, 552, 0, 0, 0 }
-    elseif playerCount == 5 then
+    elseif state.playerCount == 5 then
         y = { 58, 274, 490, 706, 922 }
     else
         y = { 69, 333, 597, 861, 0 }
     end
 
-    if lang == "ja" then
+    textLang = "en"
+    if state.lang == "ja" then
         textLang = "ja"
     end
 
-    func:AddGraph(textLang.."/Clear_Text.png")
-    func:AddGraph(textLang.."/Clear_Text_Flash.png")
-    func:AddGraph(textLang.."/FullCombo_Text.png")
-    func:AddGraph(textLang.."/FullCombo_Text_Flash.png")
+    loadTexture(textLang .. "/Clear_Text.png")
+    loadTexture(textLang .. "/Clear_Text_Flash.png")
+    loadTexture(textLang .. "/FullCombo_Text.png")
+    loadTexture(textLang .. "/FullCombo_Text_Flash.png")
 
-    func:AddGraph("Background.png")
-    func:AddGraph("Star.png")
+    -- a fresh start, as the old engine reloaded the script on every play
+    for pos = 1, 5 do
+        resetPlayer(pos)
+    end
 end
 
-function update(player)
-    pos = player + 1
+function update(timestamp, state)
+    local pos = state.player + 1
 
-    animeCounter[pos] = animeCounter[pos] + (speed * deltaTime)
-    animeValue = animeCounter[pos]
+    animeCounter[pos] = animeCounter[pos] + (speed * fps.deltaTime)
+    local animeValue = animeCounter[pos]
 
     if fc_effect_state[pos] == 1 then
-        fc_effect[pos] = fc_effect[pos] + (effect_count * 2 * speed * deltaTime)
-        
+        fc_effect[pos] = fc_effect[pos] + (effect_count * 2 * speed * fps.deltaTime)
+
         if fc_effect[pos] > effect_count then
             fc_effect[pos] = 0
         end
@@ -122,69 +142,68 @@ function update(player)
         fc_text_values[pos] = 0
     end
 
-    
     if animeCounter[pos] > 1.78 then
-        starAnimeValue[pos] = starAnimeValue[pos] + (speed * deltaTime)
+        starAnimeValue[pos] = starAnimeValue[pos] + (speed * fps.deltaTime)
         if starAnimeValue[pos] > 1.57 then
             starAnimeValue[pos] = 0
         end
     end
 end
 
-function draw(player)
-    pos = player + 1
-    animeValue = animeCounter[pos]
+function draw(state)
+    local pos = state.player + 1
+    local animeValue = animeCounter[pos]
 
-    origin_x = x[pos]
-    origin_y = y[pos]
+    local origin_x = x[pos]
+    local origin_y = y[pos]
 
-    left_x = origin_x + left_origin_offset_x
-    left_y = origin_y + left_origin_offset_y
-
-    right_x = origin_x + right_origin_offset_x
-    right_y = origin_y + right_origin_offset_y
+    local clearText = textLang .. "/Clear_Text.png"
+    local clearFlash = textLang .. "/Clear_Text_Flash.png"
+    local fcText = textLang .. "/FullCombo_Text.png"
+    local fcFlash = textLang .. "/FullCombo_Text_Flash.png"
 
     if animeValue > 1.23 then
-        func:SetOpacity((animeValue - 1.23) * 255 / (1.33 - 1.23), "Background.png")
-        func:DrawGraph(origin_x, origin_y, "Background.png")
+        tx["Background.png"]:SetOpacity(toOpacity((animeValue - 1.23) * 255 / (1.33 - 1.23)))
+        tx["Background.png"]:Draw(origin_x, origin_y)
     end
-    
+
     if animeValue < 1.23 then
         if animeValue > 0.31 then
             if animeValue > 1.0 then
-                func:SetOpacity(255 - ((((animeValue - 1.0) / 0.30)) * 255 * 2), textLang.."/Clear_Text.png")
+                tx[clearText]:SetOpacity(toOpacity(255 - ((((animeValue - 1.0) / 0.30)) * 255 * 2)))
             else
-                func:SetOpacity((((animeValue - 0.36) / 0.30)) * 255 * 2, textLang.."/Clear_Text.png")
+                tx[clearText]:SetOpacity(toOpacity((((animeValue - 0.36) / 0.30)) * 255 * 2))
             end
-            drawClearText(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, (animeValue - 0.36) / 0.30, textLang.."/Clear_Text.png")
+            drawClearText(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, (animeValue - 0.36) / 0.30, clearText)
         end
 
         if animeValue > 1.00 then
-            clearFlashOpacity = math.sin(math.min((animeValue - 1.00) * 2.50, 1) * math.pi) * 255
-            func:SetOpacity(clearFlashOpacity, textLang.."/Clear_Text_Flash.png")
-            func:DrawGraph(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y, textLang.."/Clear_Text_Flash.png")
+            local clearFlashOpacity = math.sin(math.min((animeValue - 1.00) * 2.50, 1) * math.pi) * 255
+            tx[clearFlash]:SetOpacity(toOpacity(clearFlashOpacity))
+            tx[clearFlash]:Draw(origin_x + clear_text_offset_x, origin_y + clear_text_offset_y)
         end
     end
 
+    -- FullCombo_Text keeps the opacity and scale it was last given (stage 3 sets them), as in the old API.
     if fc_text_states[pos] == 0 then
     elseif fc_text_states[pos] == 1 then
-        move_val = math.sin(fc_text_values[pos] * math.pi / 2.0)
-        move_y = move_val * text_fc_move_y
-        func:SetOpacity(255 * move_val, textLang.."/FullCombo_Text_Flash.png")
-        func:DrawGraph(origin_x + 365, origin_y - move_y, textLang.."/FullCombo_Text_Flash.png")
+        local move_val = math.sin(fc_text_values[pos] * math.pi / 2.0)
+        local move_y = move_val * text_fc_move_y
+        tx[fcFlash]:SetOpacity(toOpacity(255 * move_val))
+        tx[fcFlash]:Draw(origin_x + 365, origin_y - move_y)
     elseif fc_text_states[pos] == 2 then
-        move_val = math.cos(fc_text_values[pos] * math.pi / 2.0)
-        move_y = move_val * text_fc_move_y
-        func:DrawGraph(origin_x + 365, origin_y - move_y, textLang.."/FullCombo_Text.png")
-        func:SetOpacity(255 * move_val, textLang.."/FullCombo_Text_Flash.png")
-        func:DrawGraph(origin_x + 365, origin_y - move_y, textLang.."/FullCombo_Text_Flash.png")
+        local move_val = math.cos(fc_text_values[pos] * math.pi / 2.0)
+        local move_y = move_val * text_fc_move_y
+        tx[fcText]:Draw(origin_x + 365, origin_y - move_y)
+        tx[fcFlash]:SetOpacity(toOpacity(255 * move_val))
+        tx[fcFlash]:Draw(origin_x + 365, origin_y - move_y)
     elseif fc_text_states[pos] == 3 then
-        scale = 1.0 - (math.sin(fc_text_values[pos] * math.pi) / 20.0)
-        func:SetOpacity(255, textLang.."/FullCombo_Text.png")
-        func:SetScale(1.0, scale, textLang.."/FullCombo_Text.png")
-        func:DrawGraph(origin_x + 365, origin_y - ((scale - 1.0) * 195), textLang.."/FullCombo_Text.png")
+        local scale = 1.0 - (math.sin(fc_text_values[pos] * math.pi) / 20.0)
+        tx[fcText]:SetOpacity(toOpacity(255))
+        tx[fcText]:SetScale(1.0, scale)
+        tx[fcText]:Draw(origin_x + 365, origin_y - ((scale - 1.0) * 195))
     elseif fc_text_states[pos] == 4 then
-        func:DrawGraph(origin_x + 365, origin_y, textLang.."/FullCombo_Text.png")
+        tx[fcText]:Draw(origin_x + 365, origin_y)
     end
 
     if animeValue > 1.78 then
@@ -197,4 +216,11 @@ function draw(player)
         drawStar(origin_x + 466, origin_y + 143, starAnimeValue[pos] - 0.45)
         drawStar(origin_x + 815, origin_y + 170, starAnimeValue[pos] - 0.5)
     end
+end
+
+function onDestroy()
+    for _, t in pairs(tx) do
+        if t ~= nil then t:Dispose() end
+    end
+    tx = {}
 end

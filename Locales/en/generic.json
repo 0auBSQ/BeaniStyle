@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "Back",
+        "COMMON_CONTINUE": "Continue",
+        "COMMON_OK": "OK",
+        "COMMON_PLAY": "Play",
+        "COMMON_SELECT": "Select",
+        "DAN_EXAMS": "Exams",
+        "DAN_SONGS": "Songs",
+        "SS_DIFF_0": "Easy",
+        "SS_DIFF_1": "Normal",
+        "SS_DIFF_2": "Hard",
+        "SS_DIFF_3": "Extreme",
+        "SS_DIFF_4": "Extra Extreme",
+        "SS_DIFF_5": "Tower",
+        "SS_DIFF_6": "Dan"
+    }
+}

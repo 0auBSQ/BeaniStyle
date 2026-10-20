@@ -1,31 +1,22 @@
-﻿{
-    // Skin locale file — English: Pagoda of the Unknown
-    // Format: { "Entries": { "KEY": "value", ... } }. Every file in Locales/en/ is read; a key
-    // missing here falls back to the skin's default locale.
+{
     "Entries": {
-        // Pagoda of the Unknown (title screen)
-        "PAGODA_TITLE":     "Pagoda of the Unknown",
-        "PAGODA_BEST":      "Best",
+        "PAGODA_BEST": "Highest floor cleared: {floor}",
         "PAGODA_CHALLENGE": "Challenge",
-        "PAGODA_PRACTICE":  "Practice",
-        "PAGODA_START_AT":   "Start at...",
-        "PAGODA_LEVEL":      "Level",
-        "PAGODA_ACCEPT":     "Accept the Challenge?",
-        "PAGODA_YES":        "Yes",
-        "PAGODA_NO":         "No",
-        "PAGODA_NEXT":          "Next...",
-        "PAGODA_START":         "Start",
-        "PAGODA_LEAVE":         "Leave",
-        "PAGODA_LEAVE_CONFIRM":  "Leave the pagoda? All progress beyond the checkpoints you have discovered will be lost",
-        "PAGODA_OK":            "OK",
-        "PAGODA_ITEM_NEW":      "New item",
-        "PAGODA_EXIT":      "Exit",
-
-        // Pagoda encounter: the floor's tier, the song bars and level 10's destiny
-        "PAGODA_BAND_TEST":      "Trail",
-        "PAGODA_BAND_GATE":      "Gate",
-        "PAGODA_BAND_SKY":       "Sky",
-        "PAGODA_MYSTERY_CHANCE": "Probability of a mystery: %d%%",
-        "PAGODA_DESTINY":        "You cannot change your destiny"
+        "PAGODA_CLEARED": "{floor} cleared",
+        "PAGODA_FAILED": "{floor} failed",
+        "PAGODA_LOADING": "Loading songs...",
+        "PAGODA_LOADING_DESC": "The pagoda opens once the song list is ready.",
+        "PAGODA_MISSING": "Songs are missing",
+        "PAGODA_MISSING_DESC": "{n} songs of the pagoda are not installed. Install them to climb the pagoda.",
+        "PAGODA_NEXT": "Next floor",
+        "PAGODA_NEXT_IS": "Next: {floor}",
+        "PAGODA_PLAYS": "Runs played: {n}",
+        "PAGODA_PRACTICE": "Practice",
+        "PAGODA_PRACTICE_DONE": "Practice plays save nothing.",
+        "PAGODA_REACHED": "Highest floor reached: {floor}",
+        "PAGODA_RUN_OVER": "The run is over.",
+        "PAGODA_START_AT": "Climb from {floor}",
+        "PAGODA_TITLE": "Pagoda of the Unknown",
+        "PAGODA_TO_MENU": "Back to the pagoda"
     }
 }

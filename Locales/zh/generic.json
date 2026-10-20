@@ -1,0 +1,18 @@
+{
+    "Entries": {
+        "COMMON_BACK": "返回",
+        "COMMON_CONTINUE": "继续",
+        "COMMON_OK": "确定",
+        "COMMON_PLAY": "开始",
+        "COMMON_SELECT": "选择",
+        "DAN_EXAMS": "考试",
+        "DAN_SONGS": "歌曲",
+        "SS_DIFF_0": "简单",
+        "SS_DIFF_1": "普通",
+        "SS_DIFF_2": "困难",
+        "SS_DIFF_3": "魔王",
+        "SS_DIFF_4": "里魔王",
+        "SS_DIFF_5": "塔",
+        "SS_DIFF_6": "段位"
+    }
+}

@@ -6,8 +6,6 @@ local standard_dan = require("standard_dan")
 
 local NavInput     = require("NavInput")
 local Easing       = require("Easing")
-local EM           = require("EventMode")
-local PagodaAvatar = require("PagodaAvatar")
 
 local TX  = "Textures/"
 local SND = "Sounds/"
@@ -79,25 +77,10 @@ local anim_t     = 0.0           -- time into the current in or out flight
 local anim_dir   = "in"          -- "in" | "out"
 local anim_delay = 0.0           -- the in flight waits this long (the doors opening)
 local out_target = nil           -- "standard" | "pagoda" | "title", acted on once the out flight ends
-local to_pagoda  = false         -- the doors are closing onto the pagoda (the student hand-off follows)
 
 -- Fade the dojo BGM out as the doors close on the way out (to the Pagoda stage or the title)
 local exiting     = false
 local dan_bgm_vol = 100.0
-
--- Event Mode: the countdown to the title while a dan is being chosen (the event_timer ROActivity, with
--- the plays-left hud), and whether the one allowed dan play is done (the thank-you screen follows)
-local event_timer = nil
-local event_over  = false
-
-local function startEventTimer()
-    event_timer = ROACTIVITY:GetROActivity("event_timer")
-    if event_timer ~= nil then event_timer:Activate(EM.selectSeconds(), "dan") end
-end
-
-local function stopEventTimer()
-    if event_timer ~= nil and event_timer.IsActive then event_timer:Deactivate() end
-end
 
 -- ── Textures / sounds ─────────────────────────────────────────────────────────
 
@@ -183,10 +166,7 @@ local function menuEntries()
           title = tr("PAGODA_TITLE", "Pagoda of the Unknown"),
           desc  = tr("DANSELECT_PAGODA_DESC", "Go through multiple randomized dans in a row!") },
     }
-    -- Event Mode with a play limit: no way out of the dojo but the countdown or the play itself
-    if EM.canLeave() then
-        e[#e + 1] = { kind = "exit", tex = "exit", cx = EXIT_CX, cy = EXIT_CY, title = tr("DANSELECT_EXIT", "Exit") }
-    end
+    e[#e + 1] = { kind = "exit", tex = "exit", cx = EXIT_CX, cy = EXIT_CY, title = tr("DANSELECT_EXIT", "Exit") }
     return e
 end
 local entries = nil
@@ -274,18 +254,16 @@ end
 function activate()
     CONFIG.PlayerCount = 1
     CONFIG.SongSpeed   = 20   -- reset speed (pagoda may have changed it)
-    PagodaAvatar.leave()      -- player 1's own character and puchichara, if the pagoda still held them
 
     active      = true
     exiting     = false
     dan_bgm_vol = 100.0
     entries = menuEntries()   -- built on every entry so the texts follow the language
-    menu_t, out_target, to_pagoda = 0, nil, false
+    menu_t, out_target = 0, nil
     -- dan_doors shows the dojo's name first and leaves how long (s) here
     local title_sec = tonumber(SHARED:GetSharedString("dan_doors_title")) or 0
     SHARED:SetSharedString("dan_doors_title", "")
     flyIn(ENTRY_DELAY_SEC + title_sec)
-    event_timer, event_over = nil, false
 
     _load_menu_chara()
 
@@ -298,32 +276,16 @@ function activate()
 
     -- ── Returning from standard dan play ──────────────────────────────────────
     if standard_dan.is_returning_from_play() then
-        -- Event Mode: the dojo allows one play; the thank-you screen follows it
-        if EM.on() then
-            EM.resetMods()
-            if EM.registerPlay("dan") then
-                event_over, state = true, "leaving"
-                return
-            end
-        end
         state = "standard_dan"
         standard_dan.enter(CB, true)
         startBGM()
-        if EM.on() then startEventTimer() end
         return
     end
-    if EM.on() then startEventTimer() end
 
     -- ── Enter the menu directly ───────────────────────────────────────────────
-    -- The dojo doors are the dan_doors transition (played by _title on entry). Event Mode without the
-    -- Pagoda skips the boards: the dan list is the dojo.
+    -- The dojo doors are the dan_doors transition (played by _title on entry).
     if song_enum_done then
-        if EM.on() and not EM.pagodaEnabled() then
-            state = "standard_dan"
-            standard_dan.enter(CB, false)
-        else
-            state = "menu"
-        end
+        state = "menu"
         startBGM()
     else
         state = "loading"
@@ -333,10 +295,6 @@ end
 function deactivate()
     active = false
     stopBGM()
-    stopEventTimer()
-
-    -- into the pagoda: with the doors shut, player 1 becomes their story student, Ume beside them
-    if to_pagoda then PagodaAvatar.enter() end
 
     -- Deactivate the active sub-module (if any)
     if state == "standard_dan" then
@@ -352,13 +310,8 @@ function afterSongEnum()
 
     -- only the active stage moves on; an inactive one picks its state in activate
     if active and state == "loading" then
-        if EM.on() and not EM.pagodaEnabled() then
-            state = "standard_dan"
-            standard_dan.enter(CB, false)
-        else
-            state = "menu"
-            flyIn(0)
-        end
+        state = "menu"
+        flyIn(0)
         startBGM()
     end
 end
@@ -366,7 +319,6 @@ end
 -- ── Update ────────────────────────────────────────────────────────────────────
 
 local function leaveToTitle()
-    if not EM.canLeave() then SHARED:GetSharedSound("Error"):Play(); return end
     SHARED:GetSharedSound("Cancel"):Play()
     flyOut("title")
 end
@@ -391,7 +343,7 @@ local function afterFlyOut()
     elseif out_target == "pagoda" then
         -- Pagoda of the Unknown is its own stage: close the dojo doors over dan_select and open
         -- onto it, fading the dojo BGM out as they close.
-        exiting, state, to_pagoda = true, "leaving", true
+        exiting, state = true, "leaving"
         return Exit("stage", "pagoda", "dan_doors_back")
     else
         exiting, state = true, "leaving"
@@ -411,24 +363,9 @@ function update()
     local dt = fps.deltaTime
     for _, c in pairs(CB.ctx) do c:Tick() end
 
-    -- Event Mode: the last allowed play is done, the thank-you screen follows
-    if event_over then
-        event_over = false
-        return Exit("stage", "event_thanks")
-    end
-
-    -- the Event Mode countdown: while a dan is still being chosen, running out sends the player to the title
-    if event_timer ~= nil and event_timer.IsActive and (state == "menu" or state == "menu_out" or state == "standard_dan") then
-        if EM.signal(event_timer:Update()) == "expired" then
-            if state == "standard_dan" then standard_dan.leave() end
-            exiting, state = true, "leaving"
-            return Exit("title", nil, "dan_doors_back")
-        end
-    end
-
-    -- F3 auto toggle (not in Event Mode)
+    -- F3 auto toggle
 	local navPn = NavInput.p[1]
-    if INPUT:Pressed("ToggleAutoP1") and not EM.on() then
+    if INPUT:Pressed("ToggleAutoP1") then
         CONFIG:SetAutoStatus(0, not CONFIG:GetAutoStatus(0))
         SHARED:GetSharedSound("Move"):Play()
     end
@@ -437,21 +374,13 @@ function update()
 
     if state == "standard_dan" then
         local result = standard_dan.update(dt)
-        if result == "back" and EM.on() and not EM.pagodaEnabled() then
-            -- no boards behind the list: leave for the title when allowed, else stay
-            if EM.canLeave() then
-                standard_dan.leave()
-                exiting, state = true, "leaving"
-                return Exit("title", nil, "dan_doors_back")
-            end
-        elseif result == "back" then
+        if result == "back" then
             standard_dan.leave()
             state = "menu"
             flyIn(0)
             _load_menu_chara()
         elseif result == "play" then
             -- standard_dan already called stopBGM() and set _in_play = true
-            stopEventTimer()
             return Exit("play", nil)
         end
         return
@@ -459,7 +388,7 @@ function update()
 
     -- ── LOADING ───────────────────────────────────────────────────────────────
     if state == "loading" then
-        if navPn.cancel() and EM.canLeave() then
+        if navPn.cancel() then
             exiting, state = true, "leaving"
             return Exit("title", nil, "dan_doors_back")   -- close the doors over dan_select, open onto the title
         end
@@ -579,8 +508,6 @@ function draw()
         end
         return
     end
-    if event_over then return end   -- leaving for the thank-you screen: nothing under the fade
-
     -- ── BACKGROUND (all post-loading states) ──────────────────────────────────
     if tx_bg ~= nil and tx_bg.Loaded then
         tx_bg:DrawAtAnchor(res_w / 2, res_h / 2, "center")
@@ -589,7 +516,6 @@ function draw()
     -- ── Sub-module draw (standard_dan) ─────────────────────────────────────────
     if state == "standard_dan" then
         standard_dan.draw()
-        if event_timer ~= nil and event_timer.IsActive then event_timer:Draw() end
         return
     end
 
@@ -601,5 +527,4 @@ function draw()
         CB.drawPlayerChara(NP_X + 140, NP_Y - 6,            1.0)
         CB.drawPlayerPuchi(NP_X + 220, NP_Y + CB.puchiSineY, 1.0, CB.puchiIdxFrame)
     end
-    if event_timer ~= nil and event_timer.IsActive and state ~= "leaving" then event_timer:Draw() end
 end

@@ -1,10 +1,5 @@
---func:DrawText(x, y, text);
---func:DrawNum(x, y, num);
---func:AddGraph("filename");
---func:DrawGraph(x, y, filename);
---func:SetOpacity(opacity, "filename");
---func:SetScale(xscale, yscale, "filename");
---func:SetColor(r, g, b, "filename");
+---@diagnostic disable: undefined-global  -- TEXTURE/fps injected by CLuaScript at runtime
+-- BeaniStyle's AI battle upper background, ported from the old ScriptBG func: API to the background module API.
 
 local inAnimeCounter = -20
 
@@ -14,51 +9,65 @@ local nowAnimeFrame = 0
 
 local maxAnimeFrame = 5
 
+local tx = {}
+
+-- the old API drew at whole-pixel (truncated) positions
+local function px(value)
+    if value >= 0 then return math.floor(value) end
+    return math.ceil(value)
+end
+
 function clearIn(player)
 end
 
 function clearOut(player)
 end
 
-function init()
-    func:AddGraph("Base.png")
-    func:AddGraph("Frame.png")
+function onStart()
+    tx["Base.png"] = TEXTURE:CreateTextureSync("Base.png")
+    tx["Frame.png"] = TEXTURE:CreateTextureSync("Frame.png")
     for i = 0 , 18 do
-        func:AddGraph("Up_1P/"..tostring(i)..".png")
-        func:AddGraph("Up_2P/"..tostring(i)..".png")
+        tx["Up_1P/"..tostring(i)..".png"] = TEXTURE:CreateTextureSync("Up_1P/"..tostring(i)..".png")
+        tx["Up_2P/"..tostring(i)..".png"] = TEXTURE:CreateTextureSync("Up_2P/"..tostring(i)..".png")
 
-        func:AddGraph("Down_1P/"..tostring(i)..".png")
-        func:AddGraph("Down_2P/"..tostring(i)..".png")
+        tx["Down_1P/"..tostring(i)..".png"] = TEXTURE:CreateTextureSync("Down_1P/"..tostring(i)..".png")
+        tx["Down_2P/"..tostring(i)..".png"] = TEXTURE:CreateTextureSync("Down_2P/"..tostring(i)..".png")
     end
 
     for i = 0 , maxAnimeFrame do
-        func:AddGraph("Animation/"..tostring(i)..".png")
+        tx["Animation/"..tostring(i)..".png"] = TEXTURE:CreateTextureSync("Animation/"..tostring(i)..".png")
     end
 end
 
-function update()
-    inAnimeCounter = inAnimeCounter + (20 * deltaTime)
+function activate(state)
+    inAnimeCounter = -20
+    animeCounter = 0
+    nowAnimeFrame = 0
+end
 
-    animeCounter = animeCounter + (10 * deltaTime)
+function update(timestamp, state)
+    inAnimeCounter = inAnimeCounter + (20 * fps.deltaTime)
+
+    animeCounter = animeCounter + (10 * fps.deltaTime)
 
     nowAnimeFrame = math.floor(animeCounter+0.5)
 
     if nowAnimeFrame > maxAnimeFrame then
-        animeCounter = 0;
-        nowAnimeFrame = 0;
+        animeCounter = 0
+        nowAnimeFrame = 0
     end
 end
 
-function draw()
-    func:DrawGraph(0, 0, "Base.png")
+function draw(state)
+    tx["Base.png"]:Draw(0, 0)
 
     for i = 0 , 18 do
-        pos = i - 9
+        local pos = i - 9
         if 9 - math.abs(pos) <= inAnimeCounter then
 
-            offset1 = -(math.sin((pos / 9.0) * math.pi) * 10)
+            local offset1 = -(math.sin((pos / 9.0) * math.pi) * 10)
 
-            offset2 = 0
+            local offset2 = 0
 
             if pos > 0 then
                 offset2 = (math.cos((pos / 9.0) * math.pi) * 8)
@@ -66,25 +75,32 @@ function draw()
                 offset2 = -(math.cos((pos / 9.0) * math.pi) * 8)
             end
 
-            up_x = 756 + (92 * pos) + offset1 + offset2;
-            up_y = 57
-            
-            down_x = -48 + (106 * i)
-            down_y = 804
-    
-            if pos <= battleState then
-                func:DrawGraph(up_x, up_y, "Up_1P/"..tostring(i)..".png")
-                func:DrawGraph(down_x, down_y, "Down_1P/"..tostring(i)..".png")
+            local up_x = px(756 + (92 * pos) + offset1 + offset2)
+            local up_y = 57
+
+            local down_x = -48 + (106 * i)
+            local down_y = 804
+
+            if pos <= state.battleState then
+                tx["Up_1P/"..tostring(i)..".png"]:Draw(up_x, up_y)
+                tx["Down_1P/"..tostring(i)..".png"]:Draw(down_x, down_y)
             else
-                func:DrawGraph(up_x, up_y, "Up_2P/"..tostring(i)..".png")
-                func:DrawGraph(down_x, down_y, "Down_2P/"..tostring(i)..".png")
+                tx["Up_2P/"..tostring(i)..".png"]:Draw(up_x, up_y)
+                tx["Down_2P/"..tostring(i)..".png"]:Draw(down_x, down_y)
             end
         end
     end
 
     if inAnimeCounter > 9 then
-        func:DrawGraph(0, 0, "Frame.png")
+        tx["Frame.png"]:Draw(0, 0)
 
-        func:DrawGraph(0, 0, "Animation/"..tostring(nowAnimeFrame)..".png")
+        tx["Animation/"..tostring(nowAnimeFrame)..".png"]:Draw(0, 0)
     end
+end
+
+function onDestroy()
+    for _, t in pairs(tx) do
+        if t ~= nil then t:Dispose() end
+    end
+    tx = {}
 end

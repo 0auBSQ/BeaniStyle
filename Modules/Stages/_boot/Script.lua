@@ -292,7 +292,6 @@ function onStart()
 	SHARED:SetSharedSFX("Skip", "Sounds/Skip.ogg")
 	SHARED:SetSharedSFX("SongDecide", "Sounds/SongDecide.ogg")
 	SHARED:SetSharedSFX("Error", "../../../Sounds/Error.ogg")
-	SHARED:SetSharedSFX("EventTick", "Sounds/EventTick.ogg")   -- Event Mode: the countdown's last ten seconds
 	-- the coin icon every purse and coin reward draws (Lib/CoinBox, the coin modal)
 	SHARED:SetSharedTexture("Coin", "Textures/Coin.png")
 	-- the UI library global modules build on (UI.Pick): OWM's PopUI
@@ -317,7 +316,6 @@ function onDestroy()
 	SHARED:ClearSharedSound("Skip")
 	SHARED:ClearSharedSound("SongDecide")
 	SHARED:ClearSharedSound("Error")
-	SHARED:ClearSharedSound("EventTick")
 	SHARED:ClearSharedTexture("Coin")
 
 	if database ~= nil then database:Dispose() end

@@ -83,7 +83,7 @@ function M.collectSongs(folderNode, predicate, results)
         local node = folderNode:Child(i)
         if node.IsSong then
             if predicate(node) then results[#results + 1] = node end
-        elseif node.IsFolder then
+        elseif node.IsFolder and not node.IsVirtual then   -- virtual boxes (featured) repeat songs listed elsewhere
             M.collectSongs(node, predicate, results)
         end
     end

@@ -43,7 +43,6 @@ function update()
 		return Exit("play", nil)
 	end
 	if signal == "cancel" then return Exit("title", nil, "ai_link_back") end
-	if signal == "thanks" then return Exit("stage", "event_thanks") end   -- Event Mode: the last play is done
 end
 
 function draw()
