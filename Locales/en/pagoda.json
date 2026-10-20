@@ -8,6 +8,7 @@
         "PAGODA_LOADING_DESC": "The pagoda opens once the song list is ready.",
         "PAGODA_MISSING": "Songs are missing",
         "PAGODA_MISSING_DESC": "{n} songs of the pagoda are not installed. Install them to climb the pagoda.",
+        "PAGODA_MYSTERY_CHANCE": "??? ({n}% chance of a mystery song)",
         "PAGODA_NEXT": "Next floor",
         "PAGODA_NEXT_IS": "Next: {floor}",
         "PAGODA_PLAYS": "Runs played: {n}",
@@ -17,6 +18,7 @@
         "PAGODA_RUN_OVER": "The run is over.",
         "PAGODA_START_AT": "Climb from {floor}",
         "PAGODA_TITLE": "Pagoda of the Unknown",
-        "PAGODA_TO_MENU": "Back to the pagoda"
+        "PAGODA_TO_MENU": "Back to the pagoda",
+        "PAGODA_UNKNOWN": "???"
     }
 }

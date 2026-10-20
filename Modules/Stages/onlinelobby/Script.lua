@@ -8,7 +8,7 @@
 
 local NavInput = require("NavInput")
 local LO = require("Online.Lobby")
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 local I18N = require("Locale.i18n")
 local T = I18N.texts("lobby")     -- lang/<code>/lobby.json
 local net = LO.net
@@ -99,7 +99,7 @@ local function bindLabel(which)
     return s
 end
 
--- ── look: PopUI panels on a flat background ───────────────────────────────────────────────────────
+-- ── look: SimpleUI panels on a flat background ───────────────────────────────────────────────────────
 local TEX_NAMES = { "Difficulty/Missing", "Difficulty/Level/plus" }
 for d = 0, 4 do TEX_NAMES[#TEX_NAMES + 1] = "Difficulty/" .. d end
 for n = 0, 9 do TEX_NAMES[#TEX_NAMES + 1] = "Difficulty/Level/" .. n end
@@ -519,7 +519,7 @@ function activate()
     resetTexts()
     keyLabels, bindNames = {}, {}
     reloadKeys()
-    if ui == nil then ui = PopUI.new{} end
+    if ui == nil then ui = SimpleUI.new{} end
     builtFor = nil
     if not modDlg then modDlg = ACTIVITY:GetActivity("mod_select_dialog") end
     if not modicons then modicons = ROACTIVITY:GetROActivity("modicons"); if modicons then pcall(function() modicons:Activate() end) end end

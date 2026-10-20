@@ -3,7 +3,7 @@
 
 local NavInput = require("NavInput")
 local PS       = require("player_select")
-local PopUI    = require("PopUI")
+local SimpleUI    = require("UI.SimpleUI")
 local SavePicker = require("SavePicker")
 local CustomStages = require("Stages.CustomStages")
 
@@ -267,7 +267,7 @@ end
 -- An entry marked requiresOnline is refused while online connections are off in the settings: a
 -- popup names the setting and its section instead (the engine's own words for both).
 
-local notice      = nil     -- the PopUI popup while it shows
+local notice      = nil     -- the SimpleUI popup while it shows
 local noticeDone  = false   -- its OK was chosen
 local noticeFresh = false   -- skip its first update (the Decide that opened it)
 
@@ -289,7 +289,7 @@ end
 
 local function openNotice()
     closeNotice()
-    notice = PopUI.new{ navPlayer = 1 }
+    notice = SimpleUI.new{ navPlayer = 1 }
     local msg = tr("TITLE_ONLINE_OFF_DESC",
         "Online play is turned off. To open the Online Lobby, turn on \"{setting}\" in Settings ({section}). Only play online with people you trust.")
     local setting = engineString("SETTINGS_SYSTEM_LUANETWORKING", "Allow LuaNetworking connections")
@@ -574,7 +574,7 @@ function update(ts)
         end
         sounds.Decide:Play()
         if m.via == "custom" then
-            CustomStages.open{ ui = PopUI, title = m.title, navPlayer = "" }
+            CustomStages.open{ ui = SimpleUI, title = m.title, navPlayer = "" }
             holdDir = 0
             return nil
         end

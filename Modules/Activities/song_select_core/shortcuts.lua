@@ -4,12 +4,12 @@
 -- Every shortcut is a theme setting of type "key" (ThemeSettings.json, ids songselect_key_<id>): one keyboard
 -- key each, bound in the settings menu's Theme tab, "" = unbound. The bindings are read on every activate so
 -- a change in the settings shows on the next visit. Below the "Select a Song" overlay the helper line
--- "[key] - Show shortcuts" pulses; that key opens a PopUI panel listing every shortcut as "[key] - what it does".
+-- "[key] - Show shortcuts" pulses; that key opens a SimpleUI panel listing every shortcut as "[key] - what it does".
 --
 --   SC.init(G)   SC.reload()   SC.pressed(id)   SC.label(id)   SC.helperText()
 --   SC.open()    SC.isOpen()   SC.update(ts)    SC.draw(opacity)   SC.dispose()
 
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 
 local M = {}
 local G
@@ -146,7 +146,7 @@ local function buildPanel()
     panel.x = math.floor((SW - panel.w) / 2)
     panel.y = math.floor((SH - panel.h) / 2)
     if ui ~= nil then ui:disposeWidgets() end
-    ui = PopUI.new{
+    ui = SimpleUI.new{
         theme = THEME_UI, bg = false,
         sfx = { click = function() G.sounds.Decide:Play() end, hover = function() G.sounds.Skip:Play() end },
     }

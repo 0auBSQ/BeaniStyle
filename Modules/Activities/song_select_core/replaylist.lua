@@ -11,7 +11,7 @@
 -- right-aligned counts; the bottom band carries the play's mod icons and a badge when the replay cannot
 -- be watched or comes with caveats. Every colour is in RGB / UI_THEME below. The keyboard keeps driving the difficulty bars;
 -- the blocks answer to the mouse only: hover tints a block (nothing moves, so the viewport's edges
--- never cut a lifted block), a click opens a PopUI confirm, confirming arms the replay (REPLAY:Watch) and
+-- never cut a lifted block), a click opens a SimpleUI confirm, confirming arms the replay (REPLAY:Watch) and
 -- mounts the chart, and song_select_core returns "play".
 --
 -- Scrolling is smooth (eased pixel offset, wheel + draggable scrollbar). Blocks past the strip's top or
@@ -20,8 +20,8 @@
 -- inside. Lists load asynchronously (REPLAY:ListReplaysAsync): every difficulty prefetches when the
 -- difficulty screen opens, and a loading line shows until the hovered list lands.
 
-local PopUI = require("PopUI")
-local Shape = require("PopUI.shape")
+local SimpleUI = require("UI.SimpleUI")
+local Shape = require("UI.SimpleUI.shape")
 
 local M = {}
 local G            -- shared state injected by Script.lua
@@ -323,7 +323,7 @@ function M.init(g)
     M._loadAnim     = 0
     M._hover        = nil    -- index (0-based) of the hovered block
     M._press        = nil    -- index of the block the mouse went down on
-    M._confirmUI    = nil    -- the PopUI popup while the confirm is up
+    M._confirmUI    = nil    -- the SimpleUI popup while the confirm is up
     M._confirmChoice = nil
     M._now          = 0
 end
@@ -586,12 +586,12 @@ local function drawCard(r, rank, x, y, state)
     end
 end
 
--- ── The confirm popup (PopUI) ────────────────────────────────────────────────────
+-- ── The confirm popup (SimpleUI) ────────────────────────────────────────────────────
 local CONFIRM_W, CONFIRM_H = 720, 440
 local function openConfirm(row, rank, diff)
     G.replayConfirm = { filepath = row.FilePath, diff = diff, header = row, rank = rank, chartPath = G.replayChartPath }
     M._confirmChoice = nil
-    local ui = PopUI.new{
+    local ui = SimpleUI.new{
         theme = UI_THEME, bg = false, navPlayer = 1,
         sfx = { click = function() G.sounds.Decide:Play() end, hover = function() G.sounds.Move:Play() end },
     }
@@ -783,7 +783,7 @@ function M.draw()
         end
     end
 
-    -- the confirm popup: dim, the PopUI panel and buttons, then the play's rank, badges, score and lines
+    -- the confirm popup: dim, the SimpleUI panel and buttons, then the play's rank, badges, score and lines
     if G.replayConfirm ~= nil and M._confirmUI ~= nil then
         local c, h = G.replayConfirm, G.replayConfirm.header
         drawDim(0.55)

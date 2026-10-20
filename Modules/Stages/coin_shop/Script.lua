@@ -4,7 +4,7 @@
 -- many first); the purchase pop-up is Shop.Popup's. The title passes the save it picked (Saves.SavePicker).
 -- Plain SimpleUI screens (Lib/GenericScreen.lua), no art of its own: furniture shows My Room's thumbnail
 -- when My Room made one, nameplates their title plate, anything else its name.
--- Sounds/Buy.ogg is the coin widget's paying sound (Lib/CoinBox.lua, Lib/PopUI/widgets/coins.lua).
+-- Sounds/Buy.ogg is the paying sound of the coin purse (Lib/CoinBox.lua, used by the coin modal).
 
 local Daily = require("Shop.Daily")
 local Catalog = require("Shop.Catalog")

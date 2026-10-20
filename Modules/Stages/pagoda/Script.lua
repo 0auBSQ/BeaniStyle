@@ -260,6 +260,57 @@ local function drawProgress()
     S.text(S.trf("PAGODA_PLAYS", "Runs played: {n}", { n = Progress.plays() }), x + 40, y + 180, S.font.body, S.colors.text)
 end
 
+-- ── what a floor tells of its songs ──────────────────────────────────────────
+-- The pagoda's songs are unknown until the climb gets past them. Counted from the highest floor cleared:
+-- one floor under it the floor tells whether a mystery (purple) song comes; two, three and four floors
+-- under it names one, two, then all three base songs, and the mystery song from two under. Above that a
+-- mystery row shows only its chance (none when the chance is 0). Floor DESTINY_LEVEL never names its
+-- mystery song.
+local DESTINY_LEVEL = 20
+
+-- a number from a string, the same for the same string (which base songs get named first)
+local function hash(s)
+    local h = 5381
+    for i = 1, #s do h = (h * 33 + s:byte(i)) % 2147483647 end
+    return h
+end
+
+local function nodeId(node)
+    local ok, id = pcall(function() return node.UniqueId or node.Title end)
+    return (ok and id) or ""
+end
+
+-- the rows of a floor, top to bottom: { color, title (nil = unknown), diff (nil = unknown), chance }
+local function floorRows(lv, r)
+    local rows = {}
+    if r == nil then return rows, false end
+    local gap = Progress.highest_level() - lv
+    local named = math.max(0, math.min(3, gap - 1))
+    local base = {}
+    for _, it in ipairs(r.songs or {}) do
+        local row = { color = it.color, node = it.node, diff = it.entry and it.entry.diff or 3,
+                      rank = hash(nodeId(it.node) .. "|" .. lv) }
+        rows[#rows + 1] = row
+        base[#base + 1] = row
+    end
+    table.sort(base, function(a, b) return a.rank < b.rank end)
+    for i = 1, named do if base[i] ~= nil then base[i].title = base[i].node.Title or "?" end end
+
+    local known = false              -- the floor told whether a mystery song comes
+    local chance = math.floor(Levels.purple_prob(lv) * 100 + 0.5)
+    if r.purple ~= nil and (lv == DESTINY_LEVEL or gap >= 1) then
+        local row = { color = "purple", node = r.purple.node, diff = r.purple.entry and r.purple.entry.diff or 3 }
+        if gap >= 2 and lv ~= DESTINY_LEVEL then row.title = row.node.Title or "?" end
+        rows[#rows + 1] = row
+        known = true
+    elseif gap >= 1 then
+        known = true                 -- no mystery song this time, and the floor says so
+    elseif chance > 0 then
+        rows[#rows + 1] = { color = "purple", chance = chance }
+    end
+    return rows, known
+end
+
 local function drawFloor()
     local lv = level()
     local x, y, w = S.margin, S.headerH + 40, S.W - 2 * S.margin
@@ -274,20 +325,25 @@ local function drawFloor()
     local yy = y + 320
     S.text(S.tr("DAN_SONGS", "Songs"), x + 300, yy, S.font.label, S.colors.text)
     yy = yy + 60
-    local list = {}
-    for _, it in ipairs((roll and roll.songs) or {}) do list[#list + 1] = it end
-    if roll and roll.purple then list[#list + 1] = { color = "purple", node = roll.purple.node, entry = roll.purple.entry } end
-    for i, it in ipairs(list) do
-        S.rect(x + 300, yy, 12, 48, POOL_COLORS[it.color] or S.colors.primary)
-        S.text(string.format("%d.  %s", i, it.node.Title or "?"), x + 332, yy + 24, S.font.body, S.colors.text, "left", 1, 600)
-        S.text(diffName(it.entry.diff or 3), x + 960, yy + 24, S.font.body, S.colors.textDim, "left")
+    local rows, known = floorRows(lv, roll)
+    local unknown = S.tr("PAGODA_UNKNOWN", "???")
+    for i, row in ipairs(rows) do
+        S.rect(x + 300, yy, 12, 48, POOL_COLORS[row.color] or S.colors.primary)
+        local title = row.title or unknown
+        if row.chance ~= nil then
+            title = S.trf("PAGODA_MYSTERY_CHANCE", "??? ({n}% chance of a mystery song)", { n = row.chance })
+        end
+        S.text(string.format("%d.  %s", i, title), x + 332, yy + 24, S.font.body,
+            row.title and S.colors.text or S.colors.textDim, "left", 1, 600)
+        if row.diff ~= nil then S.text(diffName(row.diff), x + 960, yy + 24, S.font.body, S.colors.textDim, "left") end
         yy = yy + 60
     end
 
     local ex, ey = x + 1220, y + 320
     S.text(S.tr("DAN_EXAMS", "Exams"), ex, ey, S.font.label, S.colors.text)
     ey = ey + 60
-    for _, e in ipairs(Floor.exams(lv, roll and roll.purple ~= nil)) do
+    -- the mystery song changes the exams only once the floor told it comes
+    for _, e in ipairs(Floor.exams(lv, known and roll ~= nil and roll.purple ~= nil)) do
         S.text(examText(e), ex, ey, S.font.body, S.colors.text, "topleft", 1, w - 1220 - 40)
         ey = ey + 54
     end

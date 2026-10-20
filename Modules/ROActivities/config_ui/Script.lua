@@ -1,5 +1,5 @@
 ---@diagnostic disable: undefined-global, lowercase-global, need-check-nil, undefined-field
--- config_ui — the settings menu, rendered with PopUI as a two-pane layout: a top row of category tabs, a
+-- config_ui — the settings menu, rendered with SimpleUI as a two-pane layout: a top row of category tabs, a
 -- left pane of the active category's settings (per-type controls, grouped + scrollable), and a right pane
 -- showing the focused setting's name + description (and the thumbnail for the skin setting).
 -- The C# CStageConfig stage builds the model (a CLuaConfigModel) and hands it to activate(model); this script
@@ -10,7 +10,7 @@
 -- .Thumbnails, :Display(), and the mutators :SetOn(b)/:SetValue(v)/:SetIndex(i)/:Activate(). model.Keys is the
 -- key-config service; model.RequestExit()/model.PlaySfx(name) are callbacks.
 
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 local NavInput = require("NavInput")
 
 local SW, SH = 1920, 1080
@@ -57,7 +57,7 @@ local THEME = {
 }
 
 -- ── module state ──────────────────────────────────────────────────────────────────
-ui   = nil   -- PopUI manager
+ui   = nil   -- SimpleUI manager
 mode = nil   -- "main" (a category / keys-index page) | "bind" (a key-binding capture page)
 
 local M               -- the model
@@ -540,7 +540,7 @@ function activate(model)
     thumbWantIdx, thumbWantOpt, thumbWantSince = nil, nil, 0
     pages = { cats = {}, keysTab = nil, binds = {}, current = nil }; tabs = {}
 
-    ui = PopUI.new{ theme = THEME, bg = false }
+    ui = SimpleUI.new{ theme = THEME, bg = false }
     bakeGradient()
 
     -- build the tabs first so they become the leading focusables (categories, then the keys tab)
@@ -598,9 +598,9 @@ end
 
 function reload(model)
     -- language changed: rebuild with the new localized strings, keeping the user's place. The main font is
-    -- language-dependent, so the shared PopUI fonts must be flushed and rebuilt with the new typeface
+    -- language-dependent, so the shared SimpleUI fonts must be flushed and rebuilt with the new typeface
     -- (their old glyph textures are disposed with them — nothing stacks across switches).
-    PopUI.flushSharedFonts()
+    SimpleUI.flushSharedFonts()
     local keepTab   = tabs.idxActive or 1
     local keepTabFocus = tabs.idxFocused or keepTab
     local keepFocus = ui and ui.focusIdx or 1

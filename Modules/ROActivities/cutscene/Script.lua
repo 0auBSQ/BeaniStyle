@@ -2,7 +2,7 @@
 -- cutscene ROActivity
 -- ------------------------------------------------------------------------------------------------------
 -- Plays cutscene videos one after another, each with its own audio track, and owns the pause popup: the
--- screen dims and a PopUI panel offers Resume and Skip, with the shared menu sounds. It knows nothing about
+-- screen dims and a SimpleUI panel offers Resume and Skip, with the shared menu sounds. It knows nothing about
 -- what the cutscene is for; the caller decides which files play and how the end looks. Driven by C#
 -- (CStageCutScene for a song's intro and outro):
 --   activate(paths, fadeOutSeconds)
@@ -11,7 +11,7 @@
 --   draw() every frame; deactivate() frees the videos.
 -- Esc (or a pad's cancel) and F1 open the popup; Skip ends the current video only.
 
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 local NavInput = require("NavInput")
 
 local INPUT_GRACE_S = 0.15  -- after the popup opens, so the press that opened it does not act on it
@@ -91,7 +91,7 @@ local function buildPopup()
 end
 
 function onStart()
-    ui = PopUI.new{ bg = false }   -- its default sounds are the shared menu ones
+    ui = SimpleUI.new{ bg = false }   -- its default sounds are the shared menu ones
     fill = CANVAS:CreateCanvas(FILL, FILL)
     fill:Clear(255, 255, 255, 255)
     fill:Upload()

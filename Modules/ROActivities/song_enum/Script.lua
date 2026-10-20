@@ -1,11 +1,11 @@
 ---@diagnostic disable: undefined-global, undefined-field, need-check-nil, unused-local
 -- song_enum ROActivity
 -- ------------------------------------------------------------------------------------------------------
--- The song-enumeration status overlay: a PopUI panel in the top-left showing the status message, a
+-- The song-enumeration status overlay: a SimpleUI panel in the top-left showing the status message, a
 -- progress bar, and the loaded/total count (all glyph-rendered). The panel AUTO-SIZES to the message so
 -- the text always fits, undistorted. Driven by C# (CActEnumSongs): draw(bCommand, done, total) each frame.
 
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 
 -- same palette as the settings menu (config_ui "ConfigCalm") so the box matches; opaque faces (alpha 255)
 local THEME = {
@@ -78,7 +78,7 @@ local function rebuild(raw)
 end
 
 function onStart()
-    ui = PopUI.new { theme = THEME, bg = false }
+    ui = SimpleUI.new { theme = THEME, bg = false }
 end
 
 function activate()
@@ -98,7 +98,7 @@ function draw(bCommand, done, total)
     phase = phase + 0.05
     local pulse = 0.75 + 0.25 * math.abs(math.sin(phase))
 
-    ui:draw()   -- the PopUI panel (rounded/shadowed box)
+    ui:draw()   -- the SimpleUI panel (rounded/shadowed box)
 
     local cx, cy, cw = panel:content()
     local C = THEME.colors

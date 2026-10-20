@@ -1,15 +1,12 @@
 ---@diagnostic disable: undefined-global, undefined-field
+-- _boot: the first stage. On the very first launch it asks for the language and the volumes; otherwise (and
+-- once that is done) it goes straight to the title. BeaniStyle has no intro video.
 
 local NavInput = require("NavInput")
 
 local sounds = {}
 
-local video = nil
-
 local text = nil
-local text_enter = TEXTURE:CreateTexture()
-
-local counter = nil
 
 -- First Time Menu --
 local database = nil
@@ -117,19 +114,11 @@ function draw()
 				end
 			end
 		end
-	else
-		if video ~= nil then
-			video.Texture:Draw(0,0)
-		end
-
-		if text_enter ~= nil then
-			text_enter:DrawAtAnchor(960, 960, "Center")
-		end
 	end
 end
 
 function update()
-	counter:Tick()
+	if not firsttime then return Exit("title", nil) end
 
 	if firsttime then
 		if movedUp() then
@@ -185,8 +174,8 @@ function update()
 				if menu_vols[volindex].Id == "continue" then
 					firsttime = false
 					database:Write("new_user", "false")
-					counter:Start()
-					video:Start()
+					sounds.Decide:Play()
+					return Exit("title", nil)
 				else
 					volselected = not volselected
 					if volselected then
@@ -205,44 +194,17 @@ function update()
 				sounds.Cancel:Play()
 			end
 		end
-	else
-		if confirmed() then
-			sounds.Skip:Play()
-			return Exit("title", nil)
-		end
-
-		if text_enter ~= nil then
-			text_enter:SetOpacity(counter.Value)
-		end
-
-		-- IsFinished also covers decoders whose play position stalls below Duration.
-		if video ~= nil and (video:IsFinished()
-			or (video.Duration > 0.0 and video:GetPlayPosition() >= math.floor(video.Duration))) then
-			return Exit("title", nil)
-		end
 	end
 end
 
 function activate()
-	text = TEXT:Create(32)
-	text_enter = text:GetText("Press Enter to Start!")
-	-- the intro plays its own audio track, clocked together with the picture
-	local intro = "Videos/intro.mp4"
-	if LANG:GetLanguageId() == "en" then intro = "Videos/intro_en.mp4" end
-	video = VIDEO:CreateVideo(intro, true)
-	
 	sounds.Decide = SHARED:GetSharedSound("Decide")
 	sounds.Skip = SHARED:GetSharedSound("Skip")
 	sounds.Move = SHARED:GetSharedSound("Move")
 	sounds.Cancel = SHARED:GetSharedSound("Cancel")
 
-	counter = COUNTER:CreateCounter(0.0, 1.0, 1.0)
-	counter:SetBounce(true)
-
-	if not firsttime then
-		counter:Start()
-		video:Start()
-	else
+	if firsttime then
+		text = TEXT:Create(32)
 		bg = TEXTURE:CreateTexture("Textures/Tile.png")
 		sounds.Song = SOUND:CreateBGM("Sounds/StartupSong.ogg")
 		sounds.Song:SetLoop(true)
@@ -264,11 +226,9 @@ function activate()
 end
 
 function deactivate()
-	if video ~= nil then
-		video:Dispose()
-	end
 	if text ~= nil then
 		text:Dispose()
+		text = nil
 	end
 	-- First Time Menu
 	if sounds.Song ~= nil then
@@ -294,8 +254,6 @@ function onStart()
 	SHARED:SetSharedSFX("Error", "../../../Sounds/Error.ogg")
 	-- the coin icon every purse and coin reward draws (Lib/CoinBox, the coin modal)
 	SHARED:SetSharedTexture("Coin", "Textures/Coin.png")
-	-- the UI library global modules build on (UI.Pick): OWM's PopUI
-	SHARED:SetSharedString("ui_library", "PopUI")
 
 	database = DATABASE:OpenGlobalDatabase("GameStatus")
 	if database:Read("new_user") == nil or CONFIG.ConfigIsNew then

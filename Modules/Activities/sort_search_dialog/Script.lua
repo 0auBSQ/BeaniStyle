@@ -1,5 +1,5 @@
 ---@diagnostic disable: undefined-global, undefined-field, need-check-nil, unused-local
--- sort_search_dialog — the song select's sort and search dialogs, as PopUI panels over the list.
+-- sort_search_dialog — the song select's sort and search dialogs, as SimpleUI panels over the list.
 --
 -- Sort: one row per method with three buttons, ascending / descending / off, the active one lit; only one
 -- method is on at a time. The choice persists per player in the save file's global counters
@@ -13,7 +13,7 @@
 -- activate(player, mode, baseFolder): player = whose save file; mode = "sort" (default) | "search";
 -- baseFolder = the folder the search counts in.
 
-local PopUI = require("PopUI")
+local SimpleUI = require("UI.SimpleUI")
 local SongSearch = require("SongSearch")
 
 local SW, SH = 1920, 1080
@@ -192,7 +192,7 @@ function activate(player, mode, baseFolder)
     activePlayer, activeMode, activeBaseFolder = player or 0, mode or "sort", baseFolder
     wantClose, justOpened = false, true
     if ui ~= nil then ui:disposeWidgets() end
-    ui = PopUI.new{
+    ui = SimpleUI.new{
         theme = UI_THEME, bg = false, navPlayer = activePlayer + 1,
         sfx = { click = function() sounds.Decide:Play() end, hover = function() sounds.Skip:Play() end },
     }
