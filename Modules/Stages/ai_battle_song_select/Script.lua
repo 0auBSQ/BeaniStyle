@@ -17,8 +17,8 @@ function activate()
 	exitingToPlay = false
 	CONFIG.IsAIBattleMode = true
 	-- PlayerCount now returns 2 (forced by IsAIBattleMode); lock it and mount AI slot.
-	act:Activate(false, CONFIG.PlayerCount, true)
-	-- Override the scrolling background set by the activity.
+	act:Activate(false, CONFIG.PlayerCount, true, false, "shared")
+	-- "shared": the activity scrolls this texture instead of its per-genre sets
 	SHARED:SetSharedTexture("background", "Textures/BG_Space.png")
 end
 
@@ -42,7 +42,8 @@ function update()
 		exitingToPlay = true
 		return Exit("play", nil)
 	end
-	if signal == "cancel" then return Exit("title", nil) end
+	if signal == "cancel" then return Exit("title", nil, "ai_link_back") end
+	if signal == "thanks" then return Exit("stage", "event_thanks") end   -- Event Mode: the last play is done
 end
 
 function draw()

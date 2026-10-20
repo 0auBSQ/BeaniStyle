@@ -3,63 +3,114 @@
 --   fadeOut(t)            cover the song-select screen (t 0→1)
 --   loading(progress, t)  draw the loading screen (bg, player characters + nameplates / dan plate, song title
 --                         + plate, progress bar) while the engine loads the chart / WAV / game screen
---   fadeIn(t)             reveal the loaded game screen (t 0→1)
+--   fadeIn(t)             reveal the loaded game screen (t 0→1), or song select after ESC
 -- The C# loader (CStageSongLoading) runs the actual load + reports `progress` (0..1); everything drawn here.
 
 -- Fade durations (seconds) for this transition; the engine reads these globals (default is 0.5s elsewhere).
+-- The song-select → gameplay flow reads better with a slightly slower 1s curtain in + reveal out.
 FADE_OUT_SECONDS = 1.0
 FADE_IN_SECONDS  = 1.0
 
+local TA = require("TransitionArt")
+local PlayStrings = require("PlayStrings")
+
+local TEXTURES_DIR = "Textures/"
 local DIFF_TOWER, DIFF_DAN = 5, 6
+local BG_FILES = { normal = "BgWait.jpg", ai = "BgWait_AI.jpg", dan = "BgWait_Dan.jpg" }   -- tower mode draws tower_view
+-- a stage can give the dan it mounts its own loading background: this shared string holds its path from the
+-- Modules folder, read only for the chart the stage stamped (Lib/PlayStrings.lua)
+local DAN_BG_KEY = "song_loading_dan_bg"
 
 -- Textures
+local pixel                                   -- 1x1 white, for fades + bar
+local tx_bg                                   -- this trip's background (none in tower mode)
+local tower_view                              -- tower mode: the panorama + the chart's tower (tower_view ROActivity)
+local tx_plate
 local titleFont, subtitleFont
 local titleTex, subtitleTex
 
-local tx = {}
-
 -- State (re-resolved on each new song load)
-local mode = "normal" -- "normal" | "ai" | "tower" | "dan"
+local mode         = "normal"                 -- "normal" | "ai" | "tower" | "dan"
 local player_count = 1
 local res_w, res_h = 1920, 1080
-local slot_w = 1920
+local slot_w       = 1920
 local characters, slide_infos = {}, {}
-local titleStr, subtitleStr = "", ""
-local dan_scroll_y = 0
+local bg_scroll_y = 0
 local dan_tick, dan_r, dan_g, dan_b, dan_title = 0, 255, 255, 255, ""
-local dan_plate_x, dan_plate_y = 0, 0
 local initialized  = false
-local initialized_title = false
-local luaPhase = nil -- "out" | "load" | "in" — used to detect a fresh transition
+local luaPhase     = nil                      -- "out" | "load" | "in" — used to detect a fresh transition
+local wait         = TA.new()
 
 -- Tuning (mirrors the old ROActivity)
 local SLIDE_DURATION, SLIDE_STAGGER = 0.35, 0.28
+local TOWER_SCROLL_SPEED, TOWER_SCROLL_MAX = 20, 120
 local DAN_SCROLL_SPEED, DAN_SCROLL_MAX = 20, 60
 
 -- Skin layout (1920x1080, centered) — from SongLoadingConfig.ini
-local GLOW_X, GLOW_Y = 0, 32
-local TITLE_X, TITLE_Y = 615, 124
-local SUBTITLE_X, SUBTITLE_Y = 460, 268
+local PLATE_X, PLATE_Y      = 960, 540
+local TITLE_X, TITLE_Y      = 960, 420
+local SUBTITLE_X, SUBTITLE_Y = 960, 487
+local DANPLATE_X, DANPLATE_Y = 1682, 320
 
 -- ── helpers ──────────────────────────────────────────────────────────────────
 local function rect(x, y, w, h, r, g, b, a)
-	if tx["pixel"] == nil or w <= 0 or h <= 0 then return end
-	tx["pixel"]:SetColor(r, g, b); tx["pixel"]:SetOpacity(a); tx["pixel"]:SetScale(w, h); tx["pixel"]:Draw(x, y)
+	if pixel == nil or w <= 0 or h <= 0 then return end
+	pixel:SetColor(r, g, b); pixel:SetOpacity(a); pixel:SetScale(w, h); pixel:Draw(x, y)
 end
 
 -- The loading background for the current mode, at the given opacity (used to cross-fade in from song select).
+-- The tower climbs its panorama from the ground to the sky while the chart loads.
 local function draw_bg(alpha)
-	-- local bg_tx
-	-- if mode == "dan" then bg_tx = tx["tx_bg_dan"]
-	-- elseif mode == "tower" then bg_tx = tx["tx_bg_tower"]
-	-- elseif mode == "ai" then bg_tx = tx["tx_bg_ai"]
-	-- else bg_tx = tx["tx_bg_normal"] end
-	-- if bg_tx ~= nil then
-	-- 	bg_tx:SetOpacity(alpha)
-	-- 	bg_tx:Draw(0, (mode == "dan") and -dan_scroll_y or 0)
-	-- end
+	if mode == "tower" then
+		if tower_view ~= nil and tower_view.IsActive then tower_view:Draw(bg_scroll_y / TOWER_SCROLL_MAX, alpha) end
+		return
+	end
+	local tx = tx_bg
+	if tx ~= nil then
+		tx:SetOpacity(alpha)
+		if mode == "dan" then tx:Draw(0, -bg_scroll_y)
+		else tx:Draw(0, 0)
+		end
+	end
+end
 
-	tx["bg_pixel"]:DrawRect(0, 0, 0, 0, 1920, 1080); tx["bg_pixel"]:SetOpacity(alpha)
+-- the tower view loads its panorama and pieces in the background too
+local function tower_view_ready()
+	if tower_view == nil or not tower_view.IsActive then return true end
+	local r = tower_view:Call("ready")
+	local ok, v = pcall(function() return r[0] end)
+	return not (ok and v == false)
+end
+
+local function close_tower_view()
+	if tower_view ~= nil and tower_view.IsActive then tower_view:Deactivate() end
+	tower_view = nil
+end
+
+-- everything drawn is made for one trip and freed at its fadeIn(1), which also ends a cancelled load
+-- (Lib/TransitionArt)
+local function freeTextures()
+	for i = 1, #characters do
+		if characters[i] ~= nil then characters[i]:DisposeAnimation(CHARACTER.ANIM_RENDER) end
+	end
+	characters, slide_infos = {}, {}
+	for _, tx in pairs({ pixel, tx_bg, tx_plate, titleTex, subtitleTex }) do tx:Dispose() end
+	pixel, tx_bg, tx_plate, titleTex, subtitleTex = nil, nil, nil, nil, nil
+end
+
+-- the dan background a stage asked for, or nil
+local function danBackground()
+	local path = PlayStrings.get(DAN_BG_KEY)
+	if path ~= "" then return path end
+	return nil
+end
+
+local function loadTextures()
+	pixel = TEXTURE:CreateTexture("pixel.png")
+	tx_plate = TEXTURE:CreateTexture(TEXTURES_DIR .. "Plate.png")
+	local own = (mode == "dan") and danBackground() or nil
+	if own ~= nil then tx_bg = TEXTURE:CreateTexture("../../" .. own)
+	elseif BG_FILES[mode] then tx_bg = TEXTURE:CreateTexture(TEXTURES_DIR .. BG_FILES[mode]) end
 end
 
 -- (Re)build the per-player character renders + slide-in animations for the current player count.
@@ -94,7 +145,8 @@ end
 local function setup()
 	player_count = CONFIG.PlayerCount
 	local res = THEME:GetResolution(); res_w, res_h = res.X, res.Y
-	dan_scroll_y = 0
+	bg_scroll_y = 0
+	close_tower_view()
 
 	local diff = SONGMOUNT:ChosenDifficulty()
 	local node = SONGMOUNT:ChosenSongNode()
@@ -102,33 +154,37 @@ local function setup()
 	elseif diff == DIFF_TOWER then mode = "tower"
 	elseif CONFIG.IsAIBattleMode then mode = "ai"
 	else mode = "normal" end
+	freeTextures()
+	loadTextures()
 
+	local tower_look, tower_floors = nil, 0
 	dan_tick, dan_r, dan_g, dan_b, dan_title = 0, 255, 255, 255, ""
 	if node ~= nil and node.IsSong then
-		local chart = node:GetChart(DIFF_DAN)
+		local chart
+		if mode == "tower" then chart = node:GetChart(DIFF_TOWER)
+		elseif mode == "dan" then chart = node:GetChart(DIFF_DAN)
+		end
 		if chart ~= nil then
+			tower_look = chart.TowerType
+			tower_floors = chart.TotalFloorCount or 0
 			dan_tick = chart.DanTick or 0
 			local c = chart.DanTickColor
 			if c ~= nil then dan_r, dan_g, dan_b = c.R, c.G, c.B end
 		end
 		dan_title = node.Title or ""
 	end
+	if mode == "tower" then
+		tower_view = ROACTIVITY:GetROActivity("tower_view")
+		if tower_view ~= nil then tower_view:Activate(tower_look, tower_floors) end
+	end
 
-	-- cannot generate text texture here as the font might not have been loaded
-	titleStr    = (node ~= nil and node.Title) or ""
-	subtitleStr = (node ~= nil and node.Subtitle) or ""
+	local title    = (node ~= nil and node.Title) or ""
+	local subtitle = (node ~= nil and node.Subtitle) or ""
+	if title ~= "" and titleFont ~= nil then titleTex = titleFont:GetText(title) end
+	if subtitle ~= "" and subtitleFont ~= nil then subtitleTex = subtitleFont:GetText(subtitle) end
 
 	setup_characters()
 	initialized = true
-end
-
-local function setup_title()
-	if titleTex ~= nil then titleTex:Dispose(); titleTex = nil end
-	if subtitleTex ~= nil then subtitleTex:Dispose(); subtitleTex = nil end
-	if titleStr ~= "" and titleFont ~= nil then titleTex = titleFont:GetText(titleStr) end
-	if subtitleStr ~= "" and subtitleFont ~= nil then subtitleTex = subtitleFont:GetText(subtitleStr) end
-
-	initialized_title = (titleStr == "" or titleTex ~= nil) and (subtitleStr == "" or subtitleTex ~= nil)
 end
 
 local function tick_update()
@@ -137,8 +193,10 @@ local function tick_update()
 	local live = CONFIG.PlayerCount or player_count
 	if live ~= player_count and live >= 1 then player_count = live; setup_characters() end
 
-	if mode == "dan" and dan_scroll_y < DAN_SCROLL_MAX then
-		dan_scroll_y = math.min(dan_scroll_y + DAN_SCROLL_SPEED * dt, DAN_SCROLL_MAX)
+	if mode == "tower" and bg_scroll_y < TOWER_SCROLL_MAX then
+		bg_scroll_y = math.min(bg_scroll_y + TOWER_SCROLL_SPEED * dt, TOWER_SCROLL_MAX)
+	elseif mode == "dan" and bg_scroll_y < DAN_SCROLL_MAX then
+		bg_scroll_y = math.min(bg_scroll_y + DAN_SCROLL_SPEED * dt, DAN_SCROLL_MAX)
 	end
 
 	for i = 1, player_count do
@@ -189,10 +247,10 @@ local function draw_screen(progress, alpha, showBar)
 	-- foreground: dan plate, or player characters + the song title plate
 	if mode == "dan" then
 		local danplate = ROACTIVITY:GetROActivity("danplate")
-		if danplate ~= nil then danplate:Draw(dan_plate_x, dan_plate_y, op, dan_tick, dan_r, dan_g, dan_b, dan_title) end
+		if danplate ~= nil then danplate:Draw(DANPLATE_X, DANPLATE_Y, op, dan_tick, dan_r, dan_g, dan_b, dan_title) end
 	else
 		if mode == "normal" then draw_characters(op) end
-		if tx["glow"] ~= nil then tx["glow"]:SetOpacity(alpha); tx["glow"]:DrawAtAnchor(GLOW_X, GLOW_Y, "topleft") end
+		if tx_plate ~= nil then tx_plate:SetOpacity(alpha); tx_plate:DrawAtAnchor(PLATE_X, PLATE_Y, "center") end
 		if titleTex ~= nil then titleTex:SetOpacity(alpha); titleTex:DrawAtAnchor(TITLE_X, TITLE_Y, "center") end
 		if subtitleTex ~= nil then subtitleTex:SetOpacity(alpha); subtitleTex:DrawAtAnchor(SUBTITLE_X, SUBTITLE_Y, "center") end
 	end
@@ -209,51 +267,31 @@ end
 
 -- ── transition callbacks ──────────────────────────────────────────────────────
 function fadeOut(t)
-	if luaPhase ~= "out" then initialized = false; initialized_title = false; luaPhase = "out" end -- fresh transition → re-resolve song
+	if luaPhase ~= "out" then initialized = false; luaPhase = "out"; wait:reset() end   -- fresh transition → re-resolve song
 	if not initialized then setup() end
-	if not initialized_title then setup_title() end
-	draw_bg(t) -- cross-fade the loading background IN over the song-select screen (not through black)
+	draw_bg(wait:progress(t, tx_bg, tower_view_ready()))   -- cross-fade the loading background IN over the song-select screen (not through black)
 end
 
 function loading(progress, elapsed)
 	luaPhase = "load"
 	if not initialized then setup() end
-	if not initialized_title then setup_title() end
 	tick_update()
 	draw_screen(progress, 1.0, true)
 end
 
 function fadeIn(t)
 	luaPhase = "in"
-	tick_update() -- keep characters animating while they fade
-	draw_screen(1.0, 1.0 - t, false) -- fade the loading screen out → reveal gameplay (notes draw on top)
+	tick_update()                       -- keep characters animating while they fade
+	draw_screen(1.0, 1.0 - t, false)    -- fade the loading screen out → reveal gameplay (notes draw on top)
+	if t >= 1 then close_tower_view(); freeTextures() end   -- the last call: nothing drawn here is needed in play
 end
 
 function onStart()
-	tx["pixel"] = TEXTURE:CreateTexture("pixel.png")
-	tx["bg_pixel"] = TEXTURE:CreateTexture("Textures/bg_pixel.png")
-	tx["tx_bg_normal"] = TEXTURE:CreateTexture("Textures/BgWait.png")
-	tx["tx_bg_ai"] = TEXTURE:CreateTexture("Textures/BgWait_AI.png")
-	tx["tx_bg_dan"] = TEXTURE:CreateTexture("Textures/BgWait_Dan.png")
-	tx["tx_bg_tower"] = TEXTURE:CreateTexture("Textures/BgWait_Tower.png")
-	tx["glow"] = TEXTURE:CreateTexture("Textures/Glow.png")
-
-	for i = 1, 19 do
-        tx["line_" .. i] = TEXTURE:CreateTexture("Textures/Lines/" .. i .. ".png")
-    end
-
-	titleFont = TEXT:Create(46)
+	titleFont    = TEXT:Create(46)
 	subtitleFont = TEXT:Create(30)
 end
 
 function onDestroy()
-	for i = 1, #characters do
-		if characters[i] ~= nil then characters[i]:DisposeAnimation(CHARACTER.ANIM_RENDER) end
-	end
-	characters, slide_infos = {}, {}
-
-	for _, t in pairs({tx, titleTex, subtitleTex}) do
-        if t ~= nil then t:Dispose() end
-    end
-    tx = {}
+	freeTextures()
+	close_tower_view()
 end

@@ -6,21 +6,18 @@
 --   activate(title, items("\n"-joined), fontSize, <PopupMenu_* positions...>)
 --   draw(selectedIndex)   -- per frame; cursor highlights the selected line
 
--- Background stuff
-local bg_ScrollX = 0
-local scrollLoopWidth = 2160
-------------------------------------------------------------------------
 local _active = false
 
+local bg = nil          -- background panel (Textures/Menu_Title.png)
+local cursor = nil      -- highlight strip (Textures/Menu_Highlight.png, drawn as a 16-tile stretch)
 local font = nil
 local fontSize = 18
+
 local titleTex = nil    -- cached title text texture
 local itemTexs = {}     -- cached item-label text textures
 
-local tx = {}
-
 -- positions (skin PopupMenu_*), filled by activate()
-local pTitlepanelX, pTitlepanelY = 460, 40
+local pTitleBgX, pTitleBgY = 460, 40
 local pTitleX, pTitleY = 540, 44
 local pHlX, pHlY = 480, 46
 local pNameX, pNameY = 480, 77
@@ -36,16 +33,15 @@ end
 
 function onStart()
     -- Sync load so the cursor's size is valid the moment a pause first opens (loaded once, behind the skin loader).
-    tx["panel"] = TEXTURE:CreateTextureSync("Textures/Menu_Title.png")
-    tx["cursor"] = TEXTURE:CreateTextureSync("Textures/Menu_Highlight.png")
-    tx["bg"] = TEXTURE:CreateTextureSync("Textures/bg.png")
+    bg = TEXTURE:CreateTextureSync("Textures/Menu_Title.png")
+    cursor = TEXTURE:CreateTextureSync("Textures/Menu_Highlight.png")
 end
 
 function activate(title, itemsJoined, size,
-                  titlepanelX, titlepanelY, titleX, titleY, hlX, hlY, nameX, nameY, mvX, mvY)
+                  titleBgX, titleBgY, titleX, titleY, hlX, hlY, nameX, nameY, mvX, mvY)
     _active = true
 
-    pTitlepanelX, pTitlepanelY = titlepanelX, titlepanelY
+    pTitleBgX, pTitleBgY = titleBgX, titleBgY
     pTitleX, pTitleY = titleX, titleY
     pHlX, pHlY = hlX, hlY
     pNameX, pNameY = nameX, nameY
@@ -71,29 +67,25 @@ end
 function draw(selected)
     if not _active then return end
 
-    -- Scrolling background
-    bg_ScrollX = (bg_ScrollX + (fps.deltaTime * 40)) % scrollLoopWidth
-    if tx["bg"] ~= nil then tx["bg"]:DrawRect(0, 0, bg_ScrollX, 0, 1920, 1080) end
-
-    -- Panel
-    if tx["panel"] ~= nil then tx["panel"]:Draw(pTitlepanelX, pTitlepanelY) end
+    -- Background panel
+    if bg ~= nil then bg:Draw(pTitleBgX, pTitleBgY) end
 
     -- Title
     if titleTex ~= nil then titleTex:Draw(pTitleX, pTitleY) end
 
     -- Cursor highlight (left cap + 16 middle tiles + right cap), positioned at the selected line.
-    if tx["cursor"] ~= nil then
+    if cursor ~= nil then
         local curX = pHlX + (moveX * (selected + 1))
         local curY = pHlY + (moveY * (selected + 1))
-        local w = math.floor(tx["cursor"].Width / 2)
-        local h = tx["cursor"].Height
-        tx["cursor"]:DrawRect(curX, curY, 0, 0, w, h)
+        local w = math.floor(cursor.Width / 2)
+        local h = cursor.Height
+        cursor:DrawRect(curX, curY, 0, 0, w, h)
         curX = curX + w
         for _ = 0, 15 do
-            tx["cursor"]:DrawRect(curX, curY, math.floor(w / 2), 0, w, h)
+            cursor:DrawRect(curX, curY, math.floor(w / 2), 0, w, h)
             curX = curX + w
         end
-        tx["cursor"]:DrawRect(curX, curY, w, 0, w, h)
+        cursor:DrawRect(curX, curY, w, 0, w, h)
     end
 
     -- Item labels
@@ -103,8 +95,6 @@ function draw(selected)
 end
 
 function onDestroy()
-    for _, t in pairs(tx) do
-        if t ~= nil then t:Dispose() end
-    end
-    tx = {}
+    -- bg/cursor are auto-disposed with the script (CreateTextureSync registers them); text textures are owned by
+    -- the GetText cache. Nothing extra to free.
 end

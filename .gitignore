@@ -1,2 +1,3 @@
-*.png.kra
-*.kra
+/Assets
+# *.png.kra
+# *.kra

@@ -2,6 +2,11 @@
 -- _title/Script.lua  —  Main menu for OpenTaiko
 
 local NavInput = require("NavInput")
+local EM       = require("EventMode")
+local PS       = require("player_select")
+local PopUI    = require("PopUI")
+local PagodaAvatar = require("PagodaAvatar")
+local SavePicker = require("SavePicker")
 
 -- ── Resources ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +29,15 @@ local function darken(c, f)     f = f or 0.35
 local white = col(255, 255, 255)
 local black = col(0, 0, 0)
 
+-- ── Locale ────────────────────────────────────────────────────────────────────
+-- the skin's Locales/<code>.json through THEME; the English text stays in the code as the fallback
+
+local function tr(key, fallback)
+    local ok, s = pcall(function() return THEME:GetSkinString(key) end)
+    if ok and type(s) == "string" and s ~= "" and s:sub(1, 1) ~= "[" then return s end
+    return fallback
+end
+
 -- ── Vault unlock check ────────────────────────────────────────────────────────
 
 local function isVaultUnlocked()
@@ -32,116 +46,106 @@ end
 
 -- ── Menu definitions ──────────────────────────────────────────────────────────
 
-local function buildMenus()
-    local dbg = col(150, 150, 155)
+-- Event Mode: the title offers the three modes an event runs on and nothing else
+local EVENT_STAGES = { regular_song_select = true, ai_battle_song_select = true, dan_select = true }
 
+local function buildMenus()
     local m = {
         {
-            title = "Performance Mode",
-            desc  = "Play Taiko charts with your preferred settings!\nPlayable between 1 and 5 players.",
+            title = tr("TITLE_PERFORMANCE", "Performance Mode"),
+            desc  = tr("TITLE_PERFORMANCE_DESC", "Play Taiko charts with your preferred settings!\nPlayable between 1 and 5 players."),
             c     = col(255, 140, 0),
-            via   = "stage", stage = "regular_song_select",
+            via   = "stage", stage = "regular_song_select", trans = "pill_clouds",
             playerPrompt = true,
         },
         {
-            title = "The Fox Dojo",
-            desc  = "Challenge various dan exams tailored by the Fox Band!\nSingle player only.",
+            title = tr("TITLE_DOJO", "The Fox Dojo"),
+            desc  = tr("TITLE_DOJO_DESC", "Challenge various dan exams tailored by the Fox Band!\nSingle player only."),
             c     = col(0, 50, 150),
-            via   = "stage", stage = "dan_select", trans = "dan_doors",
+            via   = "stage", stage = "dan_select", trans = "dan_doors", fastTrans = "dan_doors_back",
         },
         {
-            title = "Taiko Towers",
-            desc  = "Climb the towers through survival challenges and try getting to the top!\nSingle player only.",
+            title = tr("TITLE_TOWERS", "Survival Mode"),
+            desc  = tr("TITLE_TOWERS_DESC", "Climb the towers through survival challenges and try getting to the top!\nSingle player only."),
             c     = col(100, 210, 50),
-            via   = "stage", stage = "tower_select",
+            via   = "stage", stage = "tower_select", trans = "tower_gate", fastTrans = "tower_gate_back",
         },
         {
-            title = "AI Battle Mode",
-            desc  = "Fight AItritus on your favorite charts and try to get the W!\nSingle player only.",
+            title = tr("TITLE_AI_BATTLE", "AI Battle Mode"),
+            desc  = tr("TITLE_AI_BATTLE_DESC", "Fight AItritus on your favorite charts and try to get the W!\nSingle player only."),
             c     = col(0, 200, 220),
-            via   = "stage", stage = "ai_battle_song_select",
+            via   = "stage", stage = "ai_battle_song_select", trans = "ai_link",
         },
         {
-            title = "Training Mode",
-            desc  = "Practice your favorite charts to get the hang of them!\nSingle player only.",
+            title = tr("TITLE_TRAINING", "Training Mode"),
+            desc  = tr("TITLE_TRAINING_DESC", "Practice your favorite charts to get the hang of them!\nSingle player only."),
             c     = col(210, 185, 130),
-            via   = "stage", stage = "training_song_select",
+            via   = "stage", stage = "training_song_select", trans = "pill_clouds_training",
         },
         {
-            title = "Intro Nokon",
-            desc  = "It's show time! Show your musical knowledge through Nokon's best show!\nPlayable between 1 and 5 players.",
+            title = tr("TITLE_INTRO_NOKON", "Intro Nokon"),
+            desc  = tr("TITLE_INTRO_NOKON_DESC", "It's show time! Show your musical knowledge through Nokon's best show!\nPlayable between 1 and 5 players."),
             c     = col(140, 80, 30),
-            via   = "stage", stage = "intro_nokon", trans = "nokon_curtain",
+            via   = "stage", stage = "intro_nokon", trans = "nokon_curtain", fastTrans = "nokon_curtain_back",
         },
         {
-            title = "My Room",
-            desc  = "Decorate your personal room, place furniture, and visit other players' rooms!",
+            title = tr("TITLE_MYROOM", "My Room"),
+            desc  = tr("TITLE_MYROOM_DESC", "Decorate your personal room, place furniture, and visit other players' rooms!"),
             c     = col(30, 150, 60),
-            via   = "stage", stage = "myroom",
+            via   = "stage", stage = "my_room", trans = "myroom_door", pickSave = "room",
+            back  = "_title|myroom_door",   -- My Room's way back (the shared string my_room_return)
         },
         {
-            title = "OpenTaiko's General Store",
-            desc  = "Spend your OpenTaiko coins for very nice goods! *wink*",
+            title = tr("TITLE_STORE", "OpenTaiko's General Store"),
+            desc  = tr("TITLE_STORE_DESC", "Spend your OpenTaiko coins for very nice goods! *wink*"),
             c     = col(0, 160, 170),
-            via   = "stage", stage = "coin_shop",
+            via   = "stage", stage = "coin_shop", trans = "newspaper", fastTrans = "newspaper_back", pickSave = "shop",
         },
     }
 
     -- Vault entry: conditional on unlock state
     if isVaultUnlocked() then
         m[#m + 1] = {
-            title = "Secret Vault",
-            desc  = "A place full of mysteries where keys seems to have a particular value...",
+            title = tr("TITLE_VAULT", "Secret Vault"),
+            desc  = tr("TITLE_VAULT_DESC", "A place full of mysteries where keys seems to have a particular value..."),
             c     = col(80, 80, 90),
-            via   = "stage", stage = "secret_vault_rw",
+            via   = "stage", stage = "secret_vault_rw", trans = "vault_water", fastTrans = "vault_water_back",
         }
     else
         m[#m + 1] = {
             title  = "???",
-            desc   = "Can you hear me...?",
+            desc   = tr("TITLE_VAULT_LOCKED_DESC", "Can you hear me...?"),
             c      = col(80, 80, 90),
-            via    = "stage", stage = "secret_vault_rw",
+            via    = "stage", stage = "secret_vault_rw", trans = "vault_wood",
             static = true,
         }
     end
 
     m[#m + 1] = {
-        title = "Settings",
-        desc  = "Adjust your settings to fit with your play experience!",
+        title = tr("TITLE_SETTINGS", "Settings"),
+        desc  = tr("TITLE_SETTINGS_DESC", "Adjust your settings to fit with your play experience!"),
         c     = col(170, 170, 175),
-        via   = "config",
+        via   = "config", trans = "settings_iris",
     }
     m[#m + 1] = {
-        title = "Exit",
-        desc  = "See you next time!",
+        title = tr("TITLE_EXIT", "Exit"),
+        desc  = tr("TITLE_EXIT_DESC", "See you next time!"),
         c     = col(100, 100, 105),
         via   = "exit",
     }
-
-    -- Debug stages
-    local function dbgEntry(title, desc, stage, trans)
-        return { title = title, desc = desc .. "\nThis Debug stage will not be included in the full 0.6.1 release.", c = dbg, via = "stage", stage = stage, trans = trans }
-    end
-    m[#m + 1] = dbgEntry("Demo1 (Debug)",              "The first demo using Lua stages.",                          "demo1")
-    m[#m + 1] = dbgEntry("Demo2 (Debug)",              "Was used to debug and test song lists.",                    "demo2")
-    m[#m + 1] = dbgEntry("Demo3 (Debug)",              "Was used to debug and test databases.",                     "demo3")
-    m[#m + 1] = dbgEntry("Theme Settings Test (Debug)","Shows the current theme settings values and specifications.","theme_settings_test")
-    m[#m + 1] = dbgEntry("Dan Plate Test (Debug)",     "Shows multiple dan plates with different styling.",         "dan_plate_test")
-    m[#m + 1] = dbgEntry("Dan Builder Test (Debug)",   "A minimalist random Dan player.",                          "dan_builder_test")
-    m[#m + 1] = dbgEntry("Character Shop (Debug)",     "A minimalist My Room reproduction.",                       "character_shop")
-    m[#m + 1] = dbgEntry("Gradient Map Test (Debug)",  "Shows P1 character with 3 different colour palettes.",     "test_gradient")
-    m[#m + 1] = dbgEntry("Canvas Test (Debug)",        "A tiny paint program: draw on a white sheet with the mouse, demonstrating the LuaCanvas + mouse input.", "canvas_test")
-    m[#m + 1] = dbgEntry("Voxel Engine (Debug)",       "A voxel world rendered via a Lua3DScene window.", "voxel")
-    m[#m + 1] = dbgEntry("Raytracer Demo (Debug)",     "The Lua3DScene path-traced raytracer mode.", "rt_demo")
-    m[#m + 1] = dbgEntry("Particle Showcase (Debug)",  "A stress test of the Lua3DScene particle engine.", "particles")
-    m[#m + 1] = dbgEntry("Online Lobby (Debug)",       "(Beta, Share your room code only with people you trust)", "onlinelobby")
-
     m[#m + 1] = {
-        title = "My Room (Old)",
-        desc  = "Old (0.6.0) My Room",
-        c     = dbg,
-        via   = "heya",
+        title = tr("TITLE_ONLINE_LOBBY", "Online Lobby"),
+        desc  = tr("TITLE_ONLINE_LOBBY_DESC", "(Beta, Share your room code only with people you trust)"),
+        requiresOnline = true,
+        c     = col(72, 36, 112),
+        via   = "stage", stage = "onlinelobby",
     }
+
+    if EM.on() then
+        local kept = {}
+        for _, e in ipairs(m) do if e.via == "stage" and EVENT_STAGES[e.stage] then kept[#kept + 1] = e end end
+        return kept
+    end
 
     return m
 end
@@ -152,9 +156,8 @@ local menus      = {}
 local curIdx     = 1
 local textCache  = {}   -- [i] = { title = LuaTexture, desc = LuaTexture }
 
--- Player count prompt
+-- Player count prompt (player_select.lua)
 local inPrompt   = false
-local promptCnt  = 1
 
 -- Hold-scroll tracking
 local holdDir    = 0
@@ -192,22 +195,23 @@ end
 
 -- ── Draw helpers ──────────────────────────────────────────────────────────────
 
+local BGTILE_W, BGTILE_H = 192, 108   -- BgTile.png
+
 local function drawBgTile(opacity)
-    if bgtile == nil then return end
+    if bgtile == nil or bgtile.Width <= 0 then return end
     opacity = opacity or 1.0
     bgtile:SetOpacity(opacity)
-    local tw = math.max(1, bgtile.Width)
-    local th = math.max(1, bgtile.Height)
-    for x = 0, 1919, tw do
-        for y = 0, 1079, th do
+    for x = 0, 1919, BGTILE_W do
+        for y = 0, 1079, BGTILE_H do
             bgtile:Draw(x, y)
         end
     end
     bgtile:SetOpacity(1.0)
 end
 
-local function drawBoxes()
-    if boxTex == nil or #menus == 0 then return end
+-- alpha fades the whole menu out behind the player prompt
+local function drawBoxes(alpha)
+    if boxTex == nil or #menus == 0 or alpha <= 0 then return end
     local bh      = boxTex.Height
     local spacing = bh + 20
 
@@ -224,14 +228,18 @@ local function drawBoxes()
         -- Box
         if isStatic then boxTex:SetUseNoiseEffect(true) end
         boxTex:SetColor(mkCol(m.c))
+        boxTex:SetOpacity(alpha)
         boxTex:DrawAtAnchor(960, boxY, "center")
+        boxTex:SetOpacity(1)
         boxTex:SetColor(mkCol(white))
         if isStatic then boxTex:SetUseNoiseEffect(false) end
 
         -- Hover overlay for selected entry
         if i == curIdx and hoverTex ~= nil then
             if isStatic then hoverTex:SetUseNoiseEffect(true) end
+            hoverTex:SetOpacity(alpha)
             hoverTex:DrawAtAnchor(960, boxY, "center")
+            hoverTex:SetOpacity(1)
             if isStatic then hoverTex:SetUseNoiseEffect(false) end
         end
 
@@ -239,7 +247,9 @@ local function drawBoxes()
         local titleTex = getTitleTex(i)
         if titleTex ~= nil then
             if isStatic then titleTex:SetUseNoiseEffect(true) end
+            titleTex:SetOpacity(alpha)
             titleTex:DrawAtAnchor(960, boxY - bh / 2 + 10, "top")
+            titleTex:SetOpacity(1)
             if isStatic then titleTex:SetUseNoiseEffect(false) end
         end
 
@@ -247,12 +257,83 @@ local function drawBoxes()
         local descTex = getDescTex(i)
         if descTex ~= nil then
             if isStatic then descTex:SetUseNoiseEffect(true) end
+            descTex:SetOpacity(alpha)
             descTex:DrawAtAnchor(960, boxY - bh / 2 + 100, "top")
+            descTex:SetOpacity(1)
             if isStatic then descTex:SetUseNoiseEffect(false) end
         end
 
         ::skip::
     end
+end
+
+-- ── Online notice ─────────────────────────────────────────────────────────────
+-- An entry marked requiresOnline is refused while online connections are off in the settings: a
+-- popup names the setting and its section instead (the engine's own words for both).
+
+local notice      = nil     -- the PopUI popup while it shows
+local noticeDone  = false   -- its OK was chosen
+local noticeFresh = false   -- skip its first update (the Decide that opened it)
+
+local function onlineAllowed()
+    local ok, v = pcall(function() return CONFIG.AreLuaNetworkingConnectionsAllowed end)
+    return not (ok and v == false)
+end
+
+local function engineString(key, fallback)
+    local ok, s = pcall(function() return LANG:GetString(key) end)
+    if ok and type(s) == "string" and s ~= "" and s ~= key then return s end
+    return fallback
+end
+
+local function closeNotice()
+    if notice then pcall(function() notice:disposeWidgets() end) end
+    notice, noticeDone = nil, false
+end
+
+local function openNotice()
+    closeNotice()
+    notice = PopUI.new{ navPlayer = 1 }
+    local msg = tr("TITLE_ONLINE_OFF_DESC",
+        "Online play is turned off. To open the Online Lobby, turn on \"{setting}\" in Settings ({section}). Only play online with people you trust.")
+    local setting = engineString("SETTINGS_SYSTEM_LUANETWORKING", "Allow LuaNetworking connections")
+    local section = engineString("SETTINGS_SYSTEM", "System")
+    msg = msg:gsub("{setting}", function() return setting end):gsub("{section}", function() return section end)
+    local PW, SIZE, LINE = 1000, 26, 40
+    local lines = notice:wrapLines(SIZE, msg, PW - 120)
+    local PH = 230 + #lines * LINE
+    local panel = notice:panel{ x = (1920 - PW) / 2, y = (1080 - PH) / 2, w = PW, h = PH, pad = 34,
+                                title = tr("TITLE_ONLINE_OFF_TITLE", "Online play is off") }
+    local cx, cy, cw = panel:content()
+    for i, line in ipairs(lines) do
+        notice:label{ x = cx + cw / 2, y = cy + 14 + (i - 1) * LINE, text = line, size = SIZE, align = "center", maxWidth = cw }
+    end
+    local ok = notice:button{ text = tr("TITLE_ONLINE_OFF_OK", "OK"), x = cx + cw / 2 - 120, y = cy + 34 + #lines * LINE,
+                              w = 240, h = 76, accent = true, onClick = function() noticeDone = true end }
+    for i, f in ipairs(notice.focusables) do if f == ok then notice:_setFocusIndex(i) end end
+    noticeDone, noticeFresh = false, true
+end
+
+-- ── Save choice ───────────────────────────────────────────────────────────────
+-- Entries marked pickSave ask whose save to open before leaving the title; with one save there is
+-- nothing to ask and its slot is returned at once.
+
+-- the room of a save as My Room last stored it: its size and how many pieces are placed
+local function roomInfo(_, sf)
+    local w = math.floor(tonumber(sf:GetGlobalCounter(".myroom_iw")) or 0)
+    local h = math.floor(tonumber(sf:GetGlobalCounter(".myroom_ih")) or 0)
+    local n = math.floor(tonumber(sf:GetGlobalCounter(".myroom_items")) or 0)
+    if w <= 0 or h <= 0 then return tr("TITLE_SAVE_ROOM_NONE", "Room not visited yet") end
+    return string.format(tr("TITLE_SAVE_ROOM_INFO", "%d×%d room · %d placed"), w, h, n)
+end
+
+local function openSavePicker(kind)
+    if kind == "room" then
+        -- coming from the title, My Room opens at its entrance
+        pcall(function() SHARED:SetSharedString("my_room_place", "") end)
+        return SavePicker.open{ title = tr("TITLE_SAVE_ROOM", "Whose room?"), info = roomInfo }
+    end
+    return SavePicker.open{ title = tr("SHOP_UI_WHOSE", "Whose shop?"), coins = true }
 end
 
 -- ── Navigation helpers ────────────────────────────────────────────────────────
@@ -263,10 +344,16 @@ local function moveMenu(d)
     sounds.Move:Play()
 end
 
+-- "Fast transitions" setting: use the way-out transition, which has no title card
+local function fastTransitions()
+    local ok, v = pcall(function() return THEME:GetThemeSetting("fast_transitions") end)
+    return ok and (v == "1" or v == "true")
+end
+
 local function doExit()
     local m = menus[curIdx]
-    if     m.via == "stage"       then return Exit("stage",  m.stage, m.trans)
-    elseif m.via == "heya"        then return Exit("legacy", "heya", m.trans)
+    if m.back then pcall(function() SHARED:SetSharedString("my_room_return", m.back) end) end
+    if     m.via == "stage"       then return Exit("stage",  m.stage, (m.fastTrans and fastTransitions()) and m.fastTrans or m.trans)
     elseif m.via == "config"      then return Exit("legacy", "config", m.trans)
     elseif m.via == "exit"        then return Exit("legacy", "exit", m.trans)
     elseif m.via == "onlinelounge"then return Exit("legacy", "onlinelounge", m.trans)
@@ -287,15 +374,20 @@ function onStart()
 
     sounds.BGM    = SOUND:CreateBGM("Sounds/BGM.ogg")
     sounds.BGM:SetLoop(true)
+
+    PS.load(tr)
 end
 
 function activate()
+    -- a pagoda run an earlier session crashed in: player 1's own pair is back before anything can change it
+    PagodaAvatar.recover()
+    if not EM.on() then EM.resetSession() end   -- no event running: the plays counter waits at zero
     menus     = buildMenus()
     textCache = {}
     curIdx    = math.max(1, math.min(curIdx, #menus))  -- keep last position, clamp to new size
     scrollPos = curIdx   -- start at target so there's no animation on first open
     inPrompt  = false
-    promptCnt = math.max(1, math.min(5, CONFIG.PlayerCount or 1))
+    PS.reset()
     holdDir   = 0
     sounds.Decide = SHARED:GetSharedSound("Decide")
     sounds.Cancel = SHARED:GetSharedSound("Cancel")
@@ -304,10 +396,21 @@ function activate()
 end
 
 function deactivate()
+    closeNotice()
+    SavePicker.close()
     if sounds.BGM ~= nil then sounds.BGM:Stop() end
+    PS.clearSounds()
 end
 
 function afterSongEnum()
+end
+
+-- the boxes carry localized text: rebuild them in the new language (the cache holds string textures)
+function reloadLanguage()
+    menus     = buildMenus()
+    textCache = {}
+    curIdx    = math.max(1, math.min(curIdx, #menus))
+    PS.reloadLanguage()
 end
 
 -- ── Draw ──────────────────────────────────────────────────────────────────────
@@ -315,7 +418,7 @@ end
 function draw()
     if background ~= nil then background:Draw(0, 0) end
     drawBgTile(0.65)
-    drawBoxes()
+    drawBoxes(1 - PS.dim() / 0.6)
 
     -- Version watermark (top-left, no anchor)
     if textVersion ~= nil then
@@ -323,20 +426,20 @@ function draw()
         if vTex ~= nil then vTex:Draw(0, 0) end
     end
 
-    -- Player-count prompt overlay
-    if inPrompt then
-        drawBgTile(0.85)
+    -- Player-count prompt overlay (also while its cancel outro plays)
+    if PS.visible() then
+        drawBgTile(PS.dim())
+        PS.draw()
+    end
 
-        if textBig ~= nil then
-            local pTitle = textBig:GetText("Select number of players", false, 750, mkCol(white), mkCol(black))
-            local pCount = textBig:GetText(tostring(promptCnt), false, 200, mkCol(white), mkCol(black))
-            local pHint  = textSmall:GetText(
-                "◄ / ►  to change   •   Decide to confirm   •   Cancel to go back",
-                false, 900, mkCol(white), mkCol(black))
-            if pTitle ~= nil then pTitle:DrawAtAnchor(960, 380, "center") end
-            if pCount ~= nil then pCount:DrawAtAnchor(960, 490, "center") end
-            if pHint  ~= nil then pHint:DrawAtAnchor(960,  600, "center") end
-        end
+    if notice then
+        drawBgTile(0.6)
+        notice:draw()
+    end
+
+    if SavePicker.isOpen() then
+        drawBgTile(0.6)
+        SavePicker.draw()
     end
 end
 
@@ -361,27 +464,56 @@ function update(ts)
         end
     end
 
-    -- ── Prompt mode ───────────────────────────────────────────────────────────
-    if inPrompt then
-        if NavInput.cancel() then
+    -- ── Online notice ─────────────────────────────────────────────────────────
+    if notice then
+        if noticeFresh then noticeFresh = false; return nil end
+        if notice:update(ts) == "cancel" or noticeDone then
             sounds.Cancel:Play()
+            closeNotice()
+            holdDir = 0
+        end
+        return nil
+    end
+
+    -- ── Save choice ───────────────────────────────────────────────────────────
+    if SavePicker.isOpen() then
+        local r = SavePicker.update(ts)
+        if r == "cancel" then
+            sounds.Cancel:Play()
+            holdDir = 0
+        elseif r ~= nil then
+            SavePicker.pass(r)
+            return doExit()
+        end
+        return nil
+    end
+
+    -- ── Prompt mode ───────────────────────────────────────────────────────────
+    if PS.update(ts, dt) then return doExit() end   -- the decide confirm has played out
+    if inPrompt then
+        if PS.deciding() then return nil end
+
+        local decide = NavInput.decide() and PS.canDecide()
+        if NavInput.cancel() or (decide and PS.count() == 0) then
+            sounds.Cancel:Play()
+            PS.cancel()
             inPrompt = false
             holdDir  = 0
             return nil
         end
 
-        if NavInput.decide() then
+        if decide then
             sounds.Decide:Play()
-            CONFIG.PlayerCount = promptCnt
-            inPrompt = false
+            CONFIG.PlayerCount = PS.count()
+            PS.decide()
             holdDir  = 0
-            return doExit()
+            return nil
         end
 
         local rp = NavInput.down() or NavInput.right()
         local lp = NavInput.up() or NavInput.left()
-        if rp then promptCnt = promptCnt % 5 + 1;              sounds.Move:Play() end
-        if lp then promptCnt = (promptCnt - 2) % 5 + 1;        sounds.Move:Play() end
+        if rp then PS.move(1, true);   sounds.Move:Play() end
+        if lp then PS.move(-1, true);  sounds.Move:Play() end
 
         -- Hold repeat for prompt
         local rHeld = NavInput.downPressing() or NavInput.rightPressing()
@@ -389,7 +521,7 @@ function update(ts)
         local pDir  = rHeld and 1 or (lHeld and -1 or 0)
         if pDir ~= holdDir then holdDir = pDir; holdStart = ts; holdLast = ts
         elseif pDir ~= 0 and ts - holdStart >= HOLD_DELAY and ts - holdLast >= HOLD_REPEAT then
-            promptCnt = (promptCnt - 1 + (pDir == 1 and 1 or 4)) % 5 + 1
+            PS.move(pDir, false)
             sounds.Move:Play()
             holdLast = ts
         end
@@ -422,11 +554,25 @@ function update(ts)
 
     -- ── Decide ────────────────────────────────────────────────────────────────
     if NavInput.decide() then
-        sounds.Decide:Play()
         local m = menus[curIdx]
+        if m.requiresOnline and not onlineAllowed() then
+            pcall(function() SHARED:GetSharedSound("Error"):Play() end)
+            openNotice()
+            return nil
+        end
+        sounds.Decide:Play()
+        if m.pickSave then
+            local slot = openSavePicker(m.pickSave)
+            if slot ~= nil then
+                SavePicker.pass(slot)
+                return doExit()
+            end
+            holdDir = 0
+            return nil
+        end
         if m.playerPrompt then
             inPrompt  = true
-            promptCnt = math.max(1, math.min(5, CONFIG.PlayerCount or 1))
+            PS.open(CONFIG.PlayerCount or 1)
             holdDir   = 0
             return nil
         end

@@ -187,7 +187,6 @@ function update()
 					database:Write("new_user", "false")
 					counter:Start()
 					video:Start()
-					sounds.BGM:Play()
 				else
 					volselected = not volselected
 					if volselected then
@@ -227,10 +226,11 @@ end
 function activate()
 	text = TEXT:Create(32)
 	text_enter = text:GetText("Press Enter to Start!")
-	video = VIDEO:CreateVideo("Videos/intro.mp4")
+	-- the intro plays its own audio track, clocked together with the picture
+	local intro = "Videos/intro.mp4"
+	if LANG:GetLanguageId() == "en" then intro = "Videos/intro_en.mp4" end
+	video = VIDEO:CreateVideo(intro, true)
 	
-	sounds.BGM = SOUND:CreateBGM("Sounds/BGM.ogg")
-	--sounds.BGM:SetLoop(true)
 	sounds.Decide = SHARED:GetSharedSound("Decide")
 	sounds.Skip = SHARED:GetSharedSound("Skip")
 	sounds.Move = SHARED:GetSharedSound("Move")
@@ -242,7 +242,6 @@ function activate()
 	if not firsttime then
 		counter:Start()
 		video:Start()
-		sounds.BGM:Play()
 	else
 		bg = TEXTURE:CreateTexture("Textures/Tile.png")
 		sounds.Song = SOUND:CreateBGM("Sounds/StartupSong.ogg")
@@ -267,9 +266,6 @@ end
 function deactivate()
 	if video ~= nil then
 		video:Dispose()
-	end
-	if sounds.BGM ~= nil then
-		sounds.BGM:Dispose()
 	end
 	if text ~= nil then
 		text:Dispose()
@@ -296,6 +292,11 @@ function onStart()
 	SHARED:SetSharedSFX("Skip", "Sounds/Skip.ogg")
 	SHARED:SetSharedSFX("SongDecide", "Sounds/SongDecide.ogg")
 	SHARED:SetSharedSFX("Error", "../../../Sounds/Error.ogg")
+	SHARED:SetSharedSFX("EventTick", "Sounds/EventTick.ogg")   -- Event Mode: the countdown's last ten seconds
+	-- the coin icon every purse and coin reward draws (Lib/CoinBox, the coin modal)
+	SHARED:SetSharedTexture("Coin", "Textures/Coin.png")
+	-- the UI library global modules build on (UI.Pick): OWM's PopUI
+	SHARED:SetSharedString("ui_library", "PopUI")
 
 	database = DATABASE:OpenGlobalDatabase("GameStatus")
 	if database:Read("new_user") == nil or CONFIG.ConfigIsNew then
@@ -307,9 +308,6 @@ function onStart()
 end
 
 function afterSongEnum()
-	if sounds ~= nil and sounds.BGM ~= nil and video ~= nil then
-		sounds.BGM:SetTimestamp(video:GetPlayPosition() * 1000)
-	end
 end
 
 function onDestroy()
@@ -319,6 +317,8 @@ function onDestroy()
 	SHARED:ClearSharedSound("Skip")
 	SHARED:ClearSharedSound("SongDecide")
 	SHARED:ClearSharedSound("Error")
+	SHARED:ClearSharedSound("EventTick")
+	SHARED:ClearSharedTexture("Coin")
 
 	if database ~= nil then database:Dispose() end
 end

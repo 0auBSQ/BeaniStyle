@@ -1,1 +1,0 @@
-This folder is for images used in the GitHub repo, and for BeaniStyle's project files (.kra).

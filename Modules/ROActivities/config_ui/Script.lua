@@ -82,6 +82,7 @@ local captureBtn = nil
 local lastThumbIdx, lastThumbOpt = nil, nil
 local thumbWantIdx, thumbWantOpt, thumbWantSince = nil, nil, 0   -- debounce: load the skin thumbnail after the selection settles
 local exitRequested = false   -- set by the exit tab; update() returns "exit" next
+local EXIT_TRANSITION = "settings_iris_back"   -- the way back to the title (a Modules/Transitions module)
 local sbDrag = false          -- dragging the scrollbar thumb
 
 local floor, min, max = math.floor, math.min, math.max
@@ -91,7 +92,7 @@ local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then retu
 -- ── skin locale ─────────────────────────────────────────────────────────────────────
 -- option name/desc text arrives localized from C#; the menu chrome below (tabs, buttons, headers, prompts) is
 -- authored here, so it is translated through the skin locale. the global THEME is the engine's LuaThemeFunc
--- (its GetSkinString reads the skin's Locales/<lang>.json) — distinct from the local THEME colour table above,
+-- (its GetSkinString reads the skin's Locales/<lang>/) — distinct from the local THEME colour table above,
 -- which shadows it in this file. tr(key, fallback) returns the skin string, or the fallback when the skin has
 -- no such key (GetSkinString returns a "[LOCALE NOT FOUND: key]" sentinel, which we reject).
 local function tr(key, fallback)
@@ -169,6 +170,18 @@ local function makeControl(opt)
     elseif kind == "KeyConfig" then
         local w = ui:button{ text = tr("SETTINGS_UI_CONFIGURE", "Configure"), h = 56,
             onClick = function() enterKeys(opt.KeyGroup ~= "" and opt.KeyGroup or "system") end }
+        return w, false
+    elseif kind == "Key" then
+        -- a theme "key" setting: the button shows the key; decide/click captures one (Esc keeps the old one)
+        local w = ui:button{ text = opt:Display(), h = 56, w = 300,
+            onClick = function(self)
+                captureBtn = self
+                M.Keys:StartKeyNameCapture(function(name)
+                    if name ~= nil and name ~= "" then opt:SetKey(name) end
+                    self:setText(opt:Display())
+                end)
+            end }
+        w._keyOpt = opt
         return w, false
     end
     return ui:button{ text = "?", h = 56 }, false
@@ -614,6 +627,10 @@ function update(ts)
     if wasCapturing then
         wasCapturing = false
         if captureBtn and captureBtn._act then captureBtn:setText(M.Keys:GetAllBindings(captureBtn._act)) end
+        -- a captured key may have been freed from another Key row: refresh them all
+        for _, w in ipairs(ui.widgets or {}) do
+            if w._keyOpt ~= nil then w:setText(w._keyOpt:Display()) end
+        end
     end
 
     local dt = (ts - lastTs) / 1000.0
@@ -655,7 +672,7 @@ function update(ts)
         exitRequested = false
         if M.RequestExit then M.RequestExit() end
         SHARED:GetSharedSound("Cancel"):Play()
-        return "exit"
+        return "exit", EXIT_TRANSITION
     end
 
     -- keep number-input boxes showing the clamped model value when not being edited (click-away / esc leave the
@@ -675,7 +692,7 @@ function update(ts)
         else
             if M.RequestExit then M.RequestExit() end
             SHARED:GetSharedSound("Cancel"):Play()
-            return "exit"
+            return "exit", EXIT_TRANSITION
         end
     end
 end

@@ -1,6 +1,7 @@
 -- standard_dan.lua  —  Standard Dan Challenge sub-module for dan_select
 
 local NavInput       = require("NavInput")
+local EM             = require("EventMode")
 
 local M = {}
 local ContentsDrawer = require("standard_dan_contents_draw")
@@ -11,9 +12,11 @@ local TX  = "Textures/"
 
 local DIFF_DAN = 6
 
-local PAGE_BEFORE = 6
-local PAGE_AFTER  = 7
-local PAGE_SIZE   = PAGE_BEFORE + 1 + PAGE_AFTER  -- 14
+-- one bar more than the screen holds at each end: the bar that slides in on a scroll is already
+-- there, just past the edge, instead of appearing at it
+local PAGE_BEFORE = 7
+local PAGE_AFTER  = 8
+local PAGE_SIZE   = PAGE_BEFORE + 1 + PAGE_AFTER  -- 16
 
 local BAR_SEL_X   = 1636
 local BAR_SEL_Y   = 458
@@ -63,6 +66,10 @@ local tx_content       = nil
 local tx_confirm_bg    = nil
 local tx_confirm_hover = nil
 local tx_confirm       = {}
+local tx_scroll_paper  = nil       -- the confirm scroll's parchment, cut to the open part
+local tx_scroll_roller = nil       -- one roller, drawn at both edges of the open part
+local gfont_confirm    = nil       -- "Take the challenge?" over the options
+local col_confirm, col_confirm_outline = nil, nil
 local tx_bars          = {}
 
 local danplate_ro      = nil
@@ -70,6 +77,7 @@ local modicons_ro      = nil
 local act              = {}
 local act_was_active   = {}
 local snd_move         = nil
+local snd_tick         = nil       -- Sounds/tick.ogg: a wooden tok for each bar as the list builds up
 
 local font_bar_title   = nil
 local font_hdr_title   = nil
@@ -94,7 +102,16 @@ local bar_select_pulse      = nil
 local hold_dir              = 0
 local hold_phase            = 0
 local hold_elapsed          = 0.0
-local confirm_sel           = 0
+local confirm_items         = { 0, 1, 2, 3 }   -- the options on the scroll: 0 back, 1 customize, 2 mods, 3 challenge
+local confirm_pos           = 1                -- the selected option's place in confirm_items
+local confirm_anim          = 0.0              -- the scroll: 0 rolled up, 1 open
+local confirm_dir           = 1                -- 1 unrolling, -1 rolling back up (the list returns once shut)
+local CONFIRM_OPEN_SEC      = 0.45
+local CONFIRM_CLOSE_SEC     = 0.22
+local CONFIRM_BTN_SCALE     = 0.85
+local CONFIRM_BTN_GAP       = 16
+local CONFIRM_TITLE_DY      = 70               -- the title's line below the paper's top
+local CONFIRM_BTN_DY        = 36               -- the buttons' centre below the paper's centre
 
 -- ── Internals ─────────────────────────────────────────────────────────────────
 
@@ -225,7 +242,10 @@ local function _draw_content(node, y_offset)
     tx_content:DrawAtAnchor(CONTENT_X, CONTENT_Y + (y_offset or 0), "topleft")
 end
 
-local function _load_resources()
+-- the assets stay loaded with the skin (M.init at the stage's onStart, freed in M.destroy), so entering
+-- the list costs nothing but the per-entry setup below: nothing to decode or upload on the way in
+function M.init()
+    if tx_header ~= nil then return end
     tx_header        = TEXTURE:CreateTexture(TX .. "Header.png")
     tx_content       = TEXTURE:CreateTexture(TX .. "Contents.png")
     tx_confirm_bg    = TEXTURE:CreateTexture(TX .. "Confirm/BgTile.png")
@@ -239,7 +259,36 @@ local function _load_resources()
     tx_bars["Back"]   = TEXTURE:CreateTexture(TX .. "SideBars/Back.png")
     tx_bars["Folder"] = TEXTURE:CreateTexture(TX .. "SideBars/Folder.png")
     tx_bars["Select"] = TEXTURE:CreateTexture(TX .. "SideBars/Select.png")
+    tx_scroll_paper   = TEXTURE:CreateTexture(TX .. "Confirm/scroll_paper.png")
+    tx_scroll_roller  = TEXTURE:CreateTexture(TX .. "Confirm/scroll_roller.png")
+    gfont_confirm     = TEXT:CreateGlyphCached(40)
+    col_confirm         = COLOR:CreateColorFromRGBA(104, 70, 46, 255)
+    col_confirm_outline = COLOR:CreateColorFromRGBA(255, 250, 236, 200)
 
+    local ok, s = pcall(function() return SOUND:CreateSFX("Sounds/tick.ogg") end)
+    if ok then snd_tick = s end
+
+    font_bar_title = TEXT:Create(TITLE_FONT_SIZE, "regular")
+    font_hdr_title = TEXT:Create(HDR_TITLE_FONT,  "regular")
+    font_hdr_sub   = TEXT:Create(HDR_SUB_FONT,    "regular")
+
+    ContentsDrawer.load()
+end
+
+-- the dan folder's song list, built when enumeration finishes so the first entry has it ready
+local function _build_song_list()
+    local lsls = GenerateSongListSettings()
+    lsls.SubBackBoxFrequency  = 5
+    lsls.ModuloPagination     = false
+    lsls.AppendMainRandomBox  = false
+    lsls.AppendSubRandomBoxes = false
+    lsls.FlattenOpenedFolders = false
+    lsls.RootGenreFolder      = "段位道場"
+    lsls:SetMandatoryDifficultyList({DIFF_DAN})
+    return RequestSongList(lsls)
+end
+
+local function _setup_entry()
     danplate_ro = ROACTIVITY:GetROActivity("danplate")
     modicons_ro = ROACTIVITY:GetROActivity("modicons")
     if modicons_ro ~= nil then modicons_ro:Activate() end
@@ -256,27 +305,10 @@ local function _load_resources()
     bar_select_pulse = COUNTER:CreateCounterDuration(0.3, 1.0, 0.6)
     bar_select_pulse:SetBounce(true)
     bar_select_pulse:Start()
-
-    if font_bar_title == nil then
-        font_bar_title = TEXT:Create(TITLE_FONT_SIZE, "regular")
-        font_hdr_title = TEXT:Create(HDR_TITLE_FONT,  "regular")
-        font_hdr_sub   = TEXT:Create(HDR_SUB_FONT,    "regular")
-    end
-
-    ContentsDrawer.load()
 end
 
-local function _unload_resources()
+local function _teardown_entry()
     if modicons_ro ~= nil then modicons_ro:Deactivate() end
-
-    local function sd(t) if t ~= nil then t:Dispose() end end
-    sd(tx_header)        ; tx_header        = nil
-    sd(tx_content)       ; tx_content       = nil
-    sd(tx_confirm_bg)    ; tx_confirm_bg    = nil
-    sd(tx_confirm_hover) ; tx_confirm_hover = nil
-    for i = 0, 3 do sd(tx_confirm[i]) ; tx_confirm[i] = nil end
-    for _, t in pairs(tx_bars) do sd(t) end
-    tx_bars = {}
 
     snd_move = nil
 
@@ -293,8 +325,28 @@ local function _unload_resources()
     modicons_ro = nil
     for k in pairs(act) do act[k] = nil end
     for k in pairs(act_was_active) do act_was_active[k] = nil end
+end
 
-    ContentsDrawer.unload()
+-- the options the scroll offers: Event Mode leaves the customize one out
+local function _confirm_options()
+    if EM.on() then return { 0, 2, 3 } end
+    return { 0, 1, 2, 3 }
+end
+
+local function _open_confirm()
+    confirm_items = _confirm_options()
+    confirm_pos, confirm_anim, confirm_dir = 1, 0.0, 1
+    _state = "confirm"
+end
+
+local function _close_confirm()
+    confirm_dir = -1
+end
+
+local function _sk(key, fallback)
+    local ok, s = pcall(function() return THEME:GetSkinString(key) end)
+    if ok and type(s) == "string" and s ~= "" and s:sub(1, 1) ~= "[" then return s end
+    return fallback
 end
 
 local function _reset_anim_state()
@@ -303,7 +355,9 @@ local function _reset_anim_state()
     hold_dir       = 0
     hold_phase     = 0
     hold_elapsed   = 0.0
-    confirm_sel    = 0
+    confirm_pos    = 1
+    confirm_anim   = 0.0
+    confirm_dir    = 1
     prev_sel_node  = nil
     content_slide_dir = 0
     content_slide_y   = 0.0
@@ -323,20 +377,11 @@ function M.enter(CB, is_return)
     _CB = CB
     _in_play   = false
 
-    _load_resources()
+    M.init()
+    _setup_entry()
     _reset_anim_state()
 
-    if not is_return and _song_list == nil then
-        local lsls = GenerateSongListSettings()
-        lsls.SubBackBoxFrequency  = 5
-        lsls.ModuloPagination     = false
-        lsls.AppendMainRandomBox  = false
-        lsls.AppendSubRandomBoxes = false
-        lsls.FlattenOpenedFolders = false
-        lsls.RootGenreFolder      = "段位道場"
-        lsls:SetMandatoryDifficultyList({DIFF_DAN})
-        _song_list = RequestSongList(lsls)
-    end
+    if not is_return and _song_list == nil then _song_list = _build_song_list() end
 
     _refresh_page()
     _start_setup_anim(true)
@@ -344,22 +389,40 @@ end
 
 -- Called when user cancels back to the 3-way menu
 function M.leave()
-    _unload_resources()
+    _teardown_entry()
 end
 
 -- Called from Script.lua's deactivate() while standard_dan is active
 function M.deactivate()
-    _unload_resources()
+    _teardown_entry()
 end
 
 function M.afterSongEnum()
+    -- the list follows the library: rebuilt now (this runs for every stage, active or not) so the
+    -- next entry into the dojo does not build it on the spot
     _song_list = nil
+    local ok, list = pcall(_build_song_list)
+    if ok then _song_list = list end
 end
 
 function M.destroy()
+    _teardown_entry()
+    local function sd(t) if t ~= nil then t:Dispose() end end
+    sd(tx_header)        ; tx_header        = nil
+    sd(tx_content)       ; tx_content       = nil
+    sd(tx_confirm_bg)    ; tx_confirm_bg    = nil
+    sd(tx_confirm_hover) ; tx_confirm_hover = nil
+    for i = 0, 3 do sd(tx_confirm[i]) ; tx_confirm[i] = nil end
+    for _, t in pairs(tx_bars) do sd(t) end
+    tx_bars = {}
+    sd(tx_scroll_paper)  ; tx_scroll_paper  = nil
+    sd(tx_scroll_roller) ; tx_scroll_roller = nil
+    sd(gfont_confirm)    ; gfont_confirm    = nil
+    if snd_tick ~= nil then pcall(function() snd_tick:Dispose() end) ; snd_tick = nil end
     if font_bar_title ~= nil then font_bar_title:Dispose() ; font_bar_title = nil end
     if font_hdr_title ~= nil then font_hdr_title:Dispose() ; font_hdr_title = nil end
     if font_hdr_sub   ~= nil then font_hdr_sub:Dispose()   ; font_hdr_sub   = nil end
+    ContentsDrawer.unload()
     ContentsDrawer.destroy()
 end
 
@@ -424,7 +487,7 @@ function M.update(dt)
         if bar_y_offset == 0.0 then bar_y_offset_counter = nil end
     end
 
-    if INPUT:Pressed("ToggleAutoP1") then
+    if INPUT:Pressed("ToggleAutoP1") and not EM.on() then
         CONFIG:SetAutoStatus(0, not CONFIG:GetAutoStatus(0))
         SHARED:GetSharedSound("Move"):Play()
     end
@@ -432,9 +495,16 @@ function M.update(dt)
     -- ── SONG SELECT SETUP ─────────────────────────────────────────────────────
     if _state == "song_select_setup" then
         bar_timer = bar_timer + dt
+        local shown = 0
         for i = 1, PAGE_SIZE do
             if not bar_visible[i] and bar_timer >= (i - 1) * BAR_STAGGER_SEC then
                 bar_visible[i] = true
+                -- each bar that appears ticks (once per frame, should two land on the same frame);
+                -- an empty slot shows no bar and stays silent
+                if _get_bar_tex(page_nodes[i]) ~= nil then
+                    shown = shown + 1
+                    if snd_tick ~= nil and shown == 1 then pcall(function() snd_tick:Play() end) end
+                end
             end
         end
         if bar_visible[PAGE_SIZE] then _state = "song_select" end
@@ -470,7 +540,7 @@ function M.update(dt)
             local ssn = _song_list ~= nil and _song_list:GetSelectedSongNode() or nil
             if ssn ~= nil then
                 if ssn.IsSong then
-                    _state = "confirm" ; confirm_sel = 0
+                    _open_confirm()
                     SHARED:GetSharedSound("Decide"):Play()
                 elseif ssn.IsFolder then
                     _song_list:OpenFolder() ; _refresh_page() ; _start_setup_anim(false)
@@ -491,18 +561,35 @@ function M.update(dt)
 
     -- ── CONFIRM ───────────────────────────────────────────────────────────────
     if _state == "confirm" then
+        -- the scroll unrolls before it takes input, and rolls back up before the list returns
+        if confirm_dir > 0 then
+            confirm_anim = math.min(1, confirm_anim + dt / CONFIRM_OPEN_SEC)
+            if confirm_anim < 1 then return nil end
+        else
+            confirm_anim = math.max(0, confirm_anim - dt / CONFIRM_CLOSE_SEC)
+            if confirm_anim <= 0 then _state = "song_select" end
+            return nil
+        end
+
         if navPn.right() then
-            confirm_sel = (confirm_sel + 1) % 4
+            confirm_pos = confirm_pos % #confirm_items + 1
             SHARED:GetSharedSound("Move"):Play()
         elseif navPn.left() then
-            confirm_sel = (confirm_sel + 3) % 4
+            confirm_pos = (confirm_pos - 2) % #confirm_items + 1
             SHARED:GetSharedSound("Move"):Play()
         end
 
+        if navPn.cancel() then
+            SHARED:GetSharedSound("Cancel"):Play()
+            _close_confirm()
+            return nil
+        end
+
         if navPn.decide() then
+            local confirm_sel = confirm_items[confirm_pos]
             if confirm_sel == 0 then
                 SHARED:GetSharedSound("Cancel"):Play()
-                _state = "song_select"
+                _close_confirm()
             elseif confirm_sel == 1 then
                 if act["customize_dialog"] ~= nil then act["customize_dialog"]:Activate(0) end
                 SHARED:GetSharedSound("Decide"):Play()
@@ -635,12 +722,14 @@ function M.draw()
     end
     if modicons_ro ~= nil then modicons_ro:Draw(NP_X, NP_Y - 50, 0, "menu", 255) end
 
-    -- Confirm dialog
+    -- Confirm scroll: the parchment unrolls from its middle, the options come into view as it does (each
+    -- cut at the rollers' edge), the question fades in once its line is uncovered
     if _state == "confirm" then
+        local ease = 1 - (1 - confirm_anim) * (1 - confirm_anim)
         if tx_confirm_bg ~= nil and tx_confirm_bg.Loaded then
             local bw = tx_confirm_bg.Width
             local bh = tx_confirm_bg.Height
-            tx_confirm_bg:SetOpacity(0.6)
+            tx_confirm_bg:SetOpacity(0.6 * ease)
             for rx = 0, math.ceil(res_w / bw) - 1 do
                 for ry = 0, math.ceil(res_h / bh) - 1 do
                     tx_confirm_bg:Draw(rx * bw, ry * bh)
@@ -649,27 +738,56 @@ function M.draw()
             tx_confirm_bg:SetOpacity(1.0)
         end
 
-        local btn_gap = 10
-        local total_w = 0
-        for i = 0, 3 do
-            if tx_confirm[i] ~= nil and tx_confirm[i].Loaded then
-                total_w = total_w + tx_confirm[i].Width + btn_gap
+        local cx, cy = res_w / 2, res_h / 2
+        local paper = tx_scroll_paper
+        local pw = (paper ~= nil and paper.Loaded) and paper.Width or 1500
+        local ph = (paper ~= nil and paper.Loaded) and paper.Height or 380
+        local half = math.floor(pw / 2 * ease)
+        local open_x0, open_x1 = cx - half, cx + half
+        if half > 0 and paper ~= nil and paper.Loaded then
+            paper:DrawRect(open_x0, cy - ph / 2, math.floor(pw / 2) - half, 0, half * 2, ph)
+        end
+
+        -- the options, scaled to fit the paper, each cut to the part the scroll has uncovered; the
+        -- player's highlight frame goes under its option once the scroll is open
+        local s = CONFIRM_BTN_SCALE
+        local bw, bh = 358 * s, 202 * s
+        local n = #confirm_items
+        local total_w = n * bw + (n - 1) * CONFIRM_BTN_GAP
+        local btn_y = cy + CONFIRM_BTN_DY
+        local sel_x = cx - total_w / 2 + (confirm_pos - 1) * (bw + CONFIRM_BTN_GAP) + bw / 2
+        if confirm_anim >= 1 and tx_confirm_hover ~= nil and tx_confirm_hover.Loaded then
+            local hh = tx_confirm_hover.Height - HOVER_SRC_Y
+            tx_confirm_hover:SetScale(s, s)
+            tx_confirm_hover:DrawRectAtAnchor(sel_x, btn_y, 0, HOVER_SRC_Y, tx_confirm_hover.Width, hh, "center")
+            tx_confirm_hover:SetScale(1, 1)
+        end
+        for i, id in ipairs(confirm_items) do
+            local btn = tx_confirm[id]
+            local bx = cx - total_w / 2 + (i - 1) * (bw + CONFIRM_BTN_GAP)
+            if btn ~= nil and btn.Loaded then
+                local x0, x1 = math.max(bx, open_x0), math.min(bx + bw, open_x1)
+                if x1 > x0 then
+                    btn:SetScale(s, s)
+                    btn:DrawRectAtAnchor(x0, btn_y - bh / 2, math.floor((x0 - bx) / s), 0, math.ceil((x1 - x0) / s), btn.Height, "topleft")
+                    btn:SetScale(1, 1)
+                end
             end
         end
-        local btn_x = (res_w - total_w + btn_gap) / 2
-        local btn_y = res_h / 2
-
-        for i = 0, 3 do
-            local btn = tx_confirm[i]
-            if btn ~= nil and btn.Loaded then
-                if i == confirm_sel and tx_confirm_hover ~= nil and tx_confirm_hover.Loaded then
-                    local hh = tx_confirm_hover.Height - HOVER_SRC_Y
-                    tx_confirm_hover:DrawRectAtAnchor(btn_x, btn_y, 0, HOVER_SRC_Y,
-                        tx_confirm_hover.Width, hh, "center")
-                end
-                btn:DrawAtAnchor(btn_x, btn_y, "center")
-                btn_x = btn_x + btn.Width + btn_gap
+        -- the question once the scroll is open enough for it
+        if gfont_confirm ~= nil then
+            local title = _sk("DANSELECT_CONFIRM", "Take the challenge?")
+            local tw = gfont_confirm:Measure(title) + 40
+            local fade = math.max(0, math.min(1, (half * 2 - tw) / 80))
+            if fade > 0 then
+                local nudge = math.floor((gfont_confirm.BoxHeight - math.ceil(gfont_confirm.LineHeight)) / 2) - 1
+                gfont_confirm:Draw(title, cx, cy - ph / 2 + CONFIRM_TITLE_DY + nudge, col_confirm, col_confirm_outline, fade, 1, pw - 200, "center")
             end
+        end
+
+        if tx_scroll_roller ~= nil and tx_scroll_roller.Loaded then
+            tx_scroll_roller:DrawAtAnchor(open_x0, cy, "center")
+            tx_scroll_roller:DrawAtAnchor(open_x1, cy, "center")
         end
     end
 

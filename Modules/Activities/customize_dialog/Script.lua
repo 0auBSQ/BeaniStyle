@@ -135,11 +135,6 @@ local PREVIEW_PUCHI_BASE = 500  -- puchichara centre-y (140 px lower than before
 local COL_WHITE  = "FFFFFFFF"
 local COL_YELLOW = "FFF2CF01"
 
-local function rarityToLangInt(rarity)
-    local map = { Poor=0, Common=1, Uncommon=2, Rare=3, Epic=4, Legendary=5, Mythical=6 }
-    return map[rarity] or 1
-end
-
 -- ─── Misc helpers ─────────────────────────────────────────────────────────────
 
 local function modWrap(v, n) return (v % n + n) % n end
@@ -242,6 +237,10 @@ local function buildPaletteList()
     for i = 1, rawData.Count do
         local e        = rawData[i]
         local name     = tostring(jsGet(e, "name", "Palette " .. i))
+        -- "names" holds the name per language id
+        local names    = jsGet(e, "names", nil)
+        local own      = names ~= nil and JSONLOADER:JsonGet(names, LANG:GetLanguageId()) or nil
+        if own ~= nil and tostring(own) ~= "" then name = tostring(own) end
         local plays    = math.floor(tonumber(tostring(jsGet(e, "plays", 0))) or 0)
         local blend    = tonumber(tostring(jsGet(e, "blend", 0))) or 0.0
         local rawStops = jsGet(e, "stops", nil)
@@ -311,7 +310,8 @@ local function swapPreviewCharacter(newEntry)
     buildPaletteList()
     if currentPaletteFolder ~= "" then
         local savedIdx = math.floor(save:GetGlobalCounter(".character_palette_" .. currentPaletteFolder) or 0)
-        paletteSubIdx = math.max(0, math.min(savedIdx, #paletteList - 1))
+        -- an index past the list reads as the default palette, as for the character and the story sprites
+        paletteSubIdx = (savedIdx >= 0 and savedIdx < #paletteList) and savedIdx or 0
     else
         paletteSubIdx = 0
     end
@@ -339,7 +339,7 @@ end
 
 local function findNpSubIdx()
     local info = save.NameplateInfo
-    local id   = (info ~= nil) and info.Id or -1
+    local id   = (info ~= nil) and info.Id or ""
     for i, e in ipairs(nameplateList) do
         if e.Id == id then return i - 1 end
     end
@@ -415,7 +415,7 @@ local function drawAllStagedNameplate(x, y, opacity)
     local danEntry = #danList      > 0 and danList[danSubIdx + 1]      or nil
     if npEntry ~= nil then
         np:Draw(6, x, y, opacity, player, 0,
-            npEntry.Title, npEntry.Type, rarityToLangInt(npEntry.Rarity), npEntry.Id,
+            npEntry.Title, npEntry.Type, npEntry.RarityInt, npEntry.Id,
             danEntry ~= nil and danEntry.Title       or nil,
             danEntry ~= nil and danEntry.ClearStatus or nil,
             stagedPlayerName)
@@ -569,7 +569,7 @@ local function drawDanTitleList(alpha)
             local nx      = NP_LIST_CX - math.floor(NP_PLATE_W / 2)
             if npEntry ~= nil then
                 np:Draw(6, nx, rowY - 30, opacity, player, 0,
-                    npEntry.Title, npEntry.Type, rarityToLangInt(npEntry.Rarity), npEntry.Id,
+                    npEntry.Title, npEntry.Type, npEntry.RarityInt, npEntry.Id,
                     entry.Title, entry.ClearStatus, stagedPlayerName)
             else
                 np:Draw(4, nx, rowY - 30, opacity, player, 0,
@@ -592,7 +592,7 @@ local function drawNameplateList(alpha)
             local opacity = math.floor(((slot == 0) and alpha or alpha * 0.5) * 255)
             local nx      = NP_LIST_CX - math.floor(NP_PLATE_W / 2)
             np:Draw(6, nx, rowY - 30, opacity, player, 0,
-                entry.Title, entry.Type, rarityToLangInt(entry.Rarity), entry.Id,
+                entry.Title, entry.Type, entry.RarityInt, entry.Id,
                 danEntry ~= nil and danEntry.Title       or nil,
                 danEntry ~= nil and danEntry.ClearStatus or nil,
                 stagedPlayerName)
@@ -962,7 +962,7 @@ function activate(pl)
     buildPaletteList()
     if currentPaletteFolder ~= "" then
         local savedIdx = math.floor(save:GetGlobalCounter(".character_palette_" .. currentPaletteFolder) or 0)
-        paletteSubIdx = math.max(0, math.min(savedIdx, #paletteList - 1))
+        paletteSubIdx = (savedIdx >= 0 and savedIdx < #paletteList) and savedIdx or 0
     else
         paletteSubIdx = 0
     end
